@@ -1,0 +1,821 @@
+---
+title: "Radiocarbon modeling for Gemma Miller project"
+author: "J. Beem-Miller"
+date: "11 May 2020"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_notebook:
+    toc: yes
+    toc_depth: 2
+header_includes:
+  - \usepackage[utf8]{inputenc}
+  - \usepackage{float}
+---
+```{r global_options, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.align = 'center', dev = 'cairo_pdf')
+```
+
+```{r setup, include = FALSE}
+library(ggplot2)
+library(dplyr)
+library(SoilR)
+library(ISRaD) # for graven dataset
+library(openxlsx)
+library(FME)
+```
+
+
+# Preliminary steps
+Define utility function to convert fraction modern/percent modern data to $\Delta$^14^C and calculate *k* values from fraction modern.
+
+```{r utils}
+lambda <- (1/8267)
+
+k <- function(Fm) {
+  (Fm*lambda)/(1-Fm)
+}
+
+fm_14c <- function(fm, date) {
+  (fm*exp(lambda*(1950 - date)) - 1)*1000
+}
+
+fm <- function(k){
+  k/(k+lambda)
+}
+```
+
+Read in raw data and summarize.
+
+```{r read-data}
+# read in raw data
+cdat <- read.csv("../data/derived/frc-c-jbm_11-05-2020.csv")
+rdat.raw <- read.xlsx("../data/gm14c-mod-files/MRT calc_SB - Pool.xlsx", sheet = "Data", startRow = 2)
+
+# clean up rdat
+rdat <- data.frame(ID = substr(rdat.raw$X2, start = 1, stop = nchar(rdat.raw$X2)-1),
+                   pct_mod = rdat.raw$`14C%.modern`,
+                   yearSampled = rdat.raw$Year)
+
+# summarize data    
+cdat.sum <- cdat %>%
+  select(ID, frc_pct_totalC, frc_pct_totalN, c_stock_t_ha) %>%
+  group_by(ID) %>%
+  summarize_all(list(mean = mean, sd = sd), na.rm = TRUE)
+
+rdat.sum <- rdat %>%
+  group_by(ID) %>%
+  summarize_all(list(mean = mean, sd = sd)) %>%
+  select(-yearSampled_sd) %>%
+  mutate(d14c = fm_14c(pct_mod_mean/100, yearSampled_mean))
+
+rdat.sum <- left_join(rdat.sum, cdat.sum, by = "ID")
+```
+
+# Overview
+The main issue with this dataset is the presence of highly radiocarbon depleted black carbon in the "light" and large sized fractions, typically considered to be the most labile and rapidly cycling soil carbon pools. For example, the mean $\Delta$^14^C for the Zimmerman particulate organic matter fraction (Z_POM) is -409‰. Interestingly, the dissolved fraction (Z_DOC) is even more depleted: -531‰.
+
+One solution would be to calculate the black carbon contribution to these pools and use it to partition the observed radiocarbon value for the fraction using a simple two-pool mixing model. We would need to either measure the radiocarbon content of the black carbon and assume it is constant in all of these pools, or assume that the black carbon present comes from coal, and is essentially radiocarbon dead.
+
+The assumption of constancy is highly unlikely, but may be resonable. G. Miller et al. measured the radicarbon content of an isolated black carbon fraction and found that it contained 9.86 percent modern carbon ($\Delta$^14^C = `r {round(fm_14c(9.86/100, 2012),1)}`‰). This is extremely depleted compared to what would be expected in topsoil, and thus it seems reasonable to consider this fraction to represent a distinct soil carbon pool with a very slow decomposition rate.
+
+The amount of black carbon in the whole soil was quantified, as was the contribtion of black carbon to one of the fractions: black carbon was found to comprise 5% of carbon in the whole soil, and 17% of the carbon in the Zimmerman POM fraction. However, since black carbon quantification was not performed for all fractions it is not possible to effectively partition the fraction radiocarbon data into a black carbon component and a non-black carbon component, meaning those radiocarbon data cannot be applied to answering questions about carbon turnover.
+
+A key take-away from this experiment is that the operational nature of soil fractionation requires different interpretation in different settings. If black carbon is known to be present, then the assumption (implicit in density and size fractionation) that large and light components of soil are representative of the most actively cycling carbon is no longer valid. The radiocarbon observations made in this study show the fallacy of this assumption clearly. Interestingly, the sonication performed in the Zimmerman fractionation shows that black carbon may not be decomposing along with the material found in large aggregates, but it may have an important role in facilitating aggregation, with an unknown effect on aggregate stability.
+
+```{r black-c}
+# solve for non-BC POM (data from manuscript)
+pom.bc <- .17
+pom.rc <- 1-pom.bc
+bc.d14c <- fm_14c(9.86/100, 2012)
+
+pom <- rdat.sum[rdat.sum$ID == "Z_POM", ]
+
+# calculate carbon-weighted 14C for non-BC component of POM (rc)
+rc.d14c <- (rdat.sum[rdat.sum$ID == "Z_POM", "d14c"] - bc.d14c*pom.bc*pom$c_stock_t_ha_mean)/(pom.rc*pom$c_stock_t_ha_mean)
+
+# whole soil (from manuscript)
+ws.bc <- .05
+ws.cstock <- as.numeric(rdat.sum[rdat.sum$ID == "WS", "c_stock_t_ha_mean"])
+bc.stock <- ws.bc * ws.cstock
+ws.stock.nobc <- ws.cstock - bc.stock
+ws.14c <- as.numeric(rdat.sum[rdat.sum$ID == "WS", "d14c"])
+ws.14c.nobc <- (ws.14c - bc.d14c * bc.stock) / ws.stock.nobc
+```
+
+# Comparing fractionation approaches in a modeling context
+The radiocarbon data from the fractions is difficult to interpret due to the presence of radiocarbon depleted black carbon in the normally enriched pools, e.g. free light, POM. At first glance the radiocarbon data from the mineral-associated soil carbon pools does not seem to be substantially affected, but if we look into the data more deeply, it becomes apparent that there enough black carbon in these pools to skew the radiocarbon data as well (see Table 1, below).
+
+```{r bc-contributions}
+# Sohi
+s.slow.stock <- as.numeric(rdat.sum[rdat.sum$ID == "S_Omin", "c_stock_t_ha_mean"])
+s.fast.stock <- ws.stock.nobc - s.slow.stock
+s.slow.14c <- as.numeric(rdat.sum[rdat.sum$ID == "S_Omin", "d14c"])
+s.fast.14c <- ws.14c.nobc - (s.slow.14c * (s.slow.stock / ws.stock.nobc)) / (s.fast.stock / ws.stock.nobc)
+
+# Zimmerman
+z.slow.stock <- sum(rdat.sum[rdat.sum$ID == "Z_SC", "c_stock_t_ha_mean"],
+                    rdat.sum[rdat.sum$ID == "Z_S+A", "c_stock_t_ha_mean"])
+z.fast.stock <- ws.stock.nobc - z.slow.stock
+z.slow.14c <- (rdat.sum[rdat.sum$ID == "Z_SC", "c_stock_t_ha_mean"] / z.slow.stock) * rdat.sum[rdat.sum$ID == "Z_SC", "d14c"] + (rdat.sum[rdat.sum$ID == "Z_S+A", "c_stock_t_ha_mean"] / z.slow.stock) * rdat.sum[rdat.sum$ID == "Z_S+A", "d14c"]
+z.fast.14c <- (ws.14c.nobc - z.slow.14c * z.slow.stock) / (ws.stock.nobc - z.slow.stock)
+
+frc.14c <- c(bc.d14c, ws.14c.nobc, s.slow.14c, s.fast.14c, z.slow.14c, z.fast.14c)
+frc.14c <- sapply(frc.14c, round, 1)
+
+bc.df <- data.frame(frcMtd = rep(c("HyPy", "Sohi", "Zimmerman"), each = 2),
+                    frc = c("black carbon", 
+                            "remainder", 
+                            "S_Omin",
+                            "remainder",
+                            "Z_S+A, Z_SC", 
+                            "remainder"),
+                    d14C = frc.14c)
+knitr::kable(bc.df,
+             col.names = c("Fractionation method", "Pool", "$\\Delta$^14^C (‰)"),
+             caption = "Radiocarbon distribution in pooled fractions",
+             align = "c")
+```
+
+The above values were calculated using the assumption that the mineral-organic pools do not contain black carbon, but under that assumption the ^14^C enrichment in the remainder of the soil is shown to be unrealistically high. However, the carbon allocation between pools should not be significantly affected by black carbon, so these data are still valuable for partitioning soil carbon in a modeling context. 
+
+First, in order to make the fractionation approaches more comparable, I will apply the same simple model structure to all fractionation schemes, but with the amount of carbon in the model pools determined by the fractionation scheme. The model outputs of system age, transit time, and pool age distributions will be used as metrics for comparing the different fractionation schemes.
+
+These models will be built without the black carbon contribution, i.e. subtracting the carbon-weighted ^14^C contribution from the whole soil, but using same relative carbon distribution among the fractions. This is, in effect, the same as including a very slow decomposing "black carbon" pool, but easier to interpret.
+
+## Model structure
+I suggest that we use a simple model structure for two reasons:
+
+1) Lack of constraints for parameterization
+2) Comparability across fractionation schemes
+
+## 2-pool parallel model
+A 2-pool parallel model is the simplest multiple pool model formulation available in SoilR. There are two pools into which all inputs are partioned, without any transfers between pools. 
+
+Assuming steady-state, we can think of the model as having 6 parameters:
+
+1) total carbon stock
+2) carbon stock partitioning coefficient (i.e. proportion of stock in pool 1 and pool 2)
+3) input partitioning coefficient $\gamma$ 
+4) input rate
+5) decomposition rate for pool 1
+6) decomposition rate for pool 2
+
+The first step is to define what is known, unknown, and what can be assumed in order to initialize the model.
+
+Knowns include:
+
+* total carbon stock (excluding black carbon, WS-bc)
+* ^14^C content of WS-bc (derived arithmatically, see below)
+* carbon stocks of model pools (from fractionation schemes)
+* atmospheric ^14^C
+
+Unknowns include:
+
+* partitioning coefficent $\gamma$ (amount of input to fast pool)
+* fluxes (input/output)
+* decomposition rates of pools
+* initial ^14^C 
+
+Using data from Rothamsted, we can make a guess at the initial $\Delta$^14^C of the whole soil. While it would be ideal to use the ^14^C data from the Park Grass experiment, that site is unfortunately also contaminated by black carbon (coal dust). However, from the Broadbalk sites we can obtain a value that is probably equally valid: `r {round(((85.3/100)-1)*1000, 1)}`‰ (Jenkinson et al. 2008). We can use data from the Park Grass experiment to estimate inputs into the system: Jenkinson et al. (1992) took the carbon stocks observed for the unmanured grass plots and used the RothC model to solve for steady-state carbon inputs, obtaining an estimate of 3 Mg C ha^-1^. By way of comparison, we can see that soil carbon stocks at the Rothamsted arable plots are similar to what is seen at our study site: 29 Mg C ha^-1^ (mean of pre-bomb arable sites) versus 24.1 Mg C ha^-1^ (our site) (Jenkinson et al. 2008).
+
+Applying our knowns and using the assumptions above, we are left with three unknowns: 
+
+* $\gamma$
+* decomposition rates (*k*s) for the two pools (*k~fast~*, *k~slow~*)
+
+We can optimize our models for these parameters using our known data (WS-bc $\Delta$^14^C) observed in 2012.
+
+```{r models-2p, include = FALSE}
+# parameterize a 2-pool parallel model (start very simple)
+Datm <- rbind(graven, future14C)
+Datm <- Datm[Datm$Date > 1883, c("Date", "NHc14")]
+yrs <- Datm$Date
+
+# Whole soil data
+# determine 14C for starting year (1883, based on 0-23cm data from Rothamsted, cf. Jenkinson et al. 2009)
+F0_Delta14C <- ((85.3/100)-1)*1000
+
+
+# Look at estimated k value for whole soil
+ws.k <- k(85.3/100)
+ws.k^-1 # rather long turn-over!
+
+# calculate inputs...
+ws.in <- ws.stock.nobc * ws.k # inputs (based on equilibrium stocks and F0_14C)
+# note that Jenkinson et al. (2009) point out that this method of calculating inputs yields a "ludicrous" value, so lets just use data from Rothamsted
+
+# Jenkinson et al. 1992 found that Park Grass (unmanured) best fit input w/ RothC was 3 tC ha-1 yr-1
+# adjusting the inputs relative to the stock, we get:
+ws.in <- (3/29)*ws.stock.nobc
+
+# gamma: input partitioning coefficient (proportion to fast pool, function of ks) *target var*
+gam <- .7 # initial value
+
+## Sohi
+s.frc <- as.numeric(1-rdat.sum[rdat.sum$ID == "S_Omin", "frc_pct_totalC_mean"]/100) # C-stock partitioning coefficient (fast pool)
+s.Cfast <- as.numeric(s.frc * ws.stock.nobc)
+s.Cslow <- as.numeric(ws.stock.nobc - s.Cfast)
+
+# determine ks and fm using F0_Delta14C
+s.tfast <- s.Cfast / (ws.in * gam)
+s.kfast.2p <- s.tfast^-1
+s.tslow <- s.Cslow / (ws.in * (1-gam))
+s.kslow.2p <- s.tslow^-1
+s.F0_Delta14C <- c(fm_14c(fm(s.kfast.2p), 1883),
+                   fm_14c(fm(s.kslow.2p), 1883))
+
+
+# check gamma
+# (ws.stock.nobc * s.Cfast * s.kfast.2p) / (ws.stock.nobc * s.Cfast * s.kfast.2p + ws.stock.nobc * s.Cslow * s.kslow.2p)
+
+# solve for steady-state C stocks (should equal WS-bc)
+A <- -1*diag(c(s.kfast.2p, s.kslow.2p))
+# round(sum(-1*solve(A)%*%c(ws.in*gam, ws.in*(1-gam))), 1)
+
+if(round(ws.stock.nobc,1) == round(sum(-1*solve(A)%*%c(ws.in*gam, ws.in*(1-gam))), 1)) {
+  print("Sohi stock checks out")
+} else {
+  print("Sohi stock error!")
+}
+
+# 2pool parallel model
+s.2p <- TwopParallelModel14(t = yrs,
+                            ks = c(s.kfast.2p, s.kslow.2p),
+                            C0 = c(s.Cfast, s.Cslow),
+                            F0_Delta14C = s.F0_Delta14C,
+                            In = ws.in,
+                            gam = gam,
+                            inputFc = Datm)
+
+s.2p.C14m <- getF14C(s.2p) 
+s.2p.C14 <- getF14(s.2p)
+s.2p.HR <- getF14R(s.2p)
+s.2p.Ctot <- getC(s.2p)
+
+# s.2p.C14m[129] # too young?
+# s.2p.C14[129, ] # fast too fast? slow too fast?
+
+s.2p.C14.df <- data.frame(
+  years = rep(Datm$Date, 4),
+  d14C = c(s.2p.C14[,1], s.2p.C14[,2], s.2p.C14m, Datm$NHc14),
+  pool = rep(c("fast", "slow", "total C", "atm"), each = nrow(s.2p.C14))
+  )
+
+# # Plot C stocks to confirm flat
+# plot(yrs, xlim = c(1900,2022), ylim = c(0,60))
+# lines(yrs, s.2p.Ctot[, 1], col = 2)
+# lines(yrs, s.2p.Ctot[, 2], col = 4)
+
+
+## Zimmerman
+z.frc <- as.numeric(1-sum(rdat.sum[rdat.sum$ID == "Z_SC", "frc_pct_totalC_mean"]/100,
+                          rdat.sum[rdat.sum$ID == "Z_S+A", "frc_pct_totalC_mean"]/100)) # C-stock partitioning coefficient (fast pool)
+z.Cfast <- as.numeric(z.frc * ws.stock.nobc)
+z.Cslow <- as.numeric(ws.stock.nobc - z.Cfast)
+
+# determine ks and fm using F0_Delta14C
+z.tfast <- z.Cfast / (ws.in * gam)
+z.kfast.2p <- z.tfast^-1
+z.tslow <- z.Cslow / (ws.in * (1-gam))
+z.kslow.2p <- z.tslow^-1
+z.F0_Delta14C <- c(fm_14c(fm(z.kfast.2p), 1883),
+                   fm_14c(fm(z.kslow.2p), 1883))
+
+# solve for steady-state C stocks
+A <- -1*diag(c(z.kfast.2p, z.kslow.2p))
+if(round(ws.stock.nobc, 1) == round(sum(-1*solve(A)%*%c(ws.in*gam, ws.in*(1-gam))), 1)) {
+  print("Zimmerman stock checks out")
+} else {
+  print("Zimmerman stock error!")
+}
+
+
+# 2pool parallel model
+z.2p <- TwopParallelModel14(t = yrs,
+                            ks = c(z.kfast.2p, z.kslow.2p),
+                            C0 = c(z.Cfast, z.Cslow),
+                            F0_Delta14C = z.F0_Delta14C,
+                            In = ws.in,
+                            gam = gam,
+                            inputFc = Datm)
+
+z.2p.C14m <- getF14C(z.2p) 
+z.2p.C14 <- getF14(z.2p)
+z.2p.HR <- getF14R(z.2p)
+z.2p.Ctot <- getC(z.2p)
+
+z.2p.C14.df <- data.frame(
+  years = rep(Datm$Date, 4),
+  d14C = c(z.2p.C14[,1], z.2p.C14[,2], z.2p.C14m, Datm$NHc14),
+  pool = rep(c("fast", "slow", "total C", "atm"), each = nrow(z.2p.C14))
+  )
+
+
+## Ghani
+g.frc <- as.numeric(sum(rdat.sum[rdat.sum$ID == "WSC", "frc_pct_totalC_mean"]/100,
+                        rdat.sum[rdat.sum$ID == "HWEC", "frc_pct_totalC_mean"]/100)) # C-stock partitioning coefficient (fast pool)
+g.Cfast <- as.numeric(g.frc * ws.stock.nobc)
+g.Cslow <- as.numeric(ws.stock.nobc - g.Cfast)
+
+# determine ks and fm using F0_Delta14C
+g.tfast <- g.Cfast / (ws.in * gam)
+g.kfast.2p <- g.tfast^-1
+g.tslow <- g.Cslow / (ws.in * (1-gam))
+g.kslow.2p <- g.tslow^-1
+g.F0_Delta14C <- c(fm_14c(fm(g.kfast.2p), 1883),
+                   fm_14c(fm(g.kslow.2p), 1883))
+
+# solve for steady-state C stocks
+A <- -1*diag(c(g.kfast.2p, g.kslow.2p))
+if(round(ws.stock.nobc, 1) == round(sum(-1*solve(A)%*%c(ws.in*gam, ws.in*(1-gam))), 1)) {
+  print("Ghani stock checks out")
+} else {
+  print("Ghani stock error!")
+}
+
+
+# 2pool parallel model
+g.2p <- TwopParallelModel14(t = yrs,
+                            ks = c(g.kfast.2p, g.kslow.2p),
+                            C0 = c(g.Cfast, g.Cslow),
+                            F0_Delta14C = g.F0_Delta14C,
+                            In = ws.in,
+                            gam = gam,
+                            inputFc = Datm)
+
+g.2p.C14m <- getF14C(g.2p) 
+g.2p.C14 <- getF14(g.2p)
+g.2p.HR <- getF14R(g.2p)
+g.2p.Ctot <- getC(g.2p)
+
+g.2p.C14.df <- data.frame(
+  years = rep(Datm$Date, 4),
+  d14C = c(g.2p.C14[,1], g.2p.C14[,2], g.2p.C14m, Datm$NHc14),
+  pool = rep(c("fast", "slow", "total C", "atm"), each = nrow(g.2p.C14))
+  )
+```
+
+```{r print-taus}
+taus <- c(g.tfast, s.tfast, z.tfast, g.tslow, s.tslow, z.tslow)
+taus <- round(taus, 1)
+tau.df <- data.frame(Model = rep(c("Ghani", "Sohi", "Zimmerman"), 2),
+                     Pool = rep(c("fast", "slow"), each = 3),
+                     tau = taus)
+knitr::kable(tau.df, 
+             col.names = c("Model", "Pool", "$\\tau$"),
+             caption = "Estimates of $\\tau$ for fast and slow model pools",
+             align = "c")
+```
+
+The above table shows the estimates for $\tau$ from the 2-pool parallel models using the carbon allocation from the fractionation schemes and a $\gamma$ of 0.7. However, when we compare the ^14^C values with what is observed at Rothamsted, it is clear that this model structure is not sufficient to explain what we see. The estimated initial ^14^C using these *k* values is far too young to add up to what was observed at Rothamsted. Decreasing inputs or increasing the $\gamma$ value both have the effect of decreasing the mean ^14^C content of the soil. However, the inputs seem reasonable, and even if the $\gamma$ term is increased to 0.99---90% of inputs to the fast pool---the ^14^C still doesn't add up. 
+
+The two solutions are:
+
+1) change the flow of the inputs (e.g. a series model, in which carbon is passed from the fast pool to the slow pool)
+2) add more pools to the model
+
+The Zimmerman scheme was initially developed for the RothC model, and the idea was to parameterize the pools in a three-pool series fashion: POM and DOC in the fast pool, S+A and SC-rSOC in the intermediate turnover pool, and rSOC in the inert pool. The Sohi scheme could be assumed to follow a similar logic, in that the material entering the intra-aggregate pool, for example, may  cycle in the free light pool first, and be transfered to the intra-aggregate pool at a rate determined by a separate transfer coefficient. 
+
+More complicated models can be developed, but they will require more parameters, and therefore increase the uncertainty of the model.
+```{r plot-mod-1}
+# Sohi 2-p model
+ggplot(s.2p.C14.df, aes(years, d14C, color = pool)) +
+  geom_vline(xintercept = 2011, linetype = "dashed") +
+  geom_path() +
+  geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
+  scale_color_manual(
+    name = "Model pool",
+    values = c("atm" = 8,
+               "fast" = "#D81B60", 
+               "total C" = "black", 
+               "slow" = "#1E88E5")) +
+  scale_x_continuous(limits = c(1950, 2022)) +
+  ggtitle("Sohi 2p model") +
+  xlab("Year") +
+  ylab(expression(''*Delta*''^14*'C (‰)')) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+# Zimmerman 2-p model
+ggplot(z.2p.C14.df, aes(years, d14C, color = pool)) +
+  geom_vline(xintercept = 2011, linetype = "dashed") +
+  geom_path() +
+  geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
+  scale_color_manual(
+    name = "Model pool",
+    values = c("atm" = 8,
+               "fast" = "#D81B60", 
+               "total C" = "black", 
+               "slow" = "#1E88E5")) +
+  scale_x_continuous(limits = c(1950, 2022)) +
+  ggtitle("Zimmerman 2p model") +
+  xlab("Year") +
+  ylab(expression(''*Delta*''^14*'C (‰)')) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+# Ghani 2-p model
+ggplot(g.2p.C14.df, aes(years, d14C, color = pool)) +
+  geom_vline(xintercept = 2011, linetype = "dashed") +
+  geom_path() +
+  geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
+  scale_color_manual(
+    name = "Model pool",
+    values = c("atm" = 8,
+               "fast" = "#D81B60", 
+               "total C" = "black", 
+               "slow" = "#1E88E5")) +
+  scale_x_continuous(limits = c(1950, 2022)) +
+  ggtitle("Ghani 2p model") +
+  xlab("Year") +
+  ylab(expression(''*Delta*''^14*'C (‰)')) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+The above plots of ^14^C over time for the 2-pool parallel models show that the models are not very different, which makes sense given that that carbon distribution was not very different, and that was the only difference between the models. However, since the estimates for the $\Delta$^14^C are far too enriched to match the observation, we need to implement some form of the above changes.
+
+The Ghani fractionation scheme was intended to diagnose soil quality, and was developed more from an agronomic perpective rather than for parameterizing soil carbon models. In the study from which this method came the authors show that the HWEC pool correlates well with microbial biomass and soil carbohydrates, but the WSC pool is hardly discussed. Interestingly, the WSC pool from this fractionation scheme shows evidence of black carbon, but the HWEC pool does not. Perhaps this relates to the correlation with microbial biomass: i.e. WSC is simply water soluble material, including black carbon, but the HWEC material is primarily microbial in origin, and since the WSC pool has already been removed, this effectively excludes black carbon.
+
+However, since these pools are very similar in function, it does not seem like it would be very helful to use them to parameterize separate soil carbon pools. Since we already saw that the two pool models are not effective for this dataset, I will only focus on the Zimmerman and Sohi fractionation schemes for the future analysis.
+
+Both the Sohi and the Zimmerman fractionation schemes were developed with the goal of parameterizing soil carbon models, so it is relatively simple to fit a model structure to the operationally defined pools. However, expanding the model structure beyond the 2-pool parallel formulation also greatly increases model uncertainty. In order to minimize this problem, I propose using the two simplest structures that could fit these fractionation schemes: a 3-pool series model for the Zimmerman scheme (cf. figure 3 in Zimmmerman et al. 2007), and a mixed 3-pool model for the Sohi scheme, i.e. with inputs feeding into the free light pool, and then splitting the outflux from the free light pool between the intra-aggregate pool and the heavy fraction pool. These model formulations require the following parameters.
+
+Zimmerman:
+
+* *k*~fast~, *k*~intm~, *k*~slow~
+* a21 (transfer from POM + DOC to secondary pool comprised of the SC minus the rSOC + S+A)
+* a32 (transfer from the SC-rSOC + S+A to the rSOC pool)
+
+Sohi:
+
+* *k*~fPOM~, *k*~oPOM~, *k*~Omin~
+* a21 (transfer from fPOM to oPOM)
+* a31 (transfer from fPOM to Omin)
+
+```{r sohi-3p-mod, include = FALSE}
+# first set up custom model
+sohi.3p.mod <- function(t,
+                        ks,
+                        C0,
+                        F0_Delta14C, 
+                        In,
+                        xi = 1,
+                        inputFc,
+                        a21, 
+                        a31, 
+                        lambda = -0.0001209681,
+                        lag = 0, 
+                        solver = deSolve.lsoda.wrapper, 
+                        pass = FALSE) 
+{
+  t_start = min(t)
+  t_stop = max(t)
+  if (length(ks) != 3) 
+    stop("ks must be of length = 3")
+  if (length(C0) != 3) 
+    stop("the vector with initial conditions must be of length = 3")
+  if (length(In) == 1) 
+    inputFluxes = BoundInFlux(function(t) {
+      matrix(nrow = 3, ncol = 1, c(In, 0, 0))
+    }, t_start, t_stop)
+  if (class(In) == "data.frame") {
+    x = In[, 1]
+    y = In[, 2]
+    inputFlux = function(t0) {
+      as.numeric(spline(x, y, xout = t0)[2])
+    }
+    inputFluxes = BoundInFlux(function(t) {
+      matrix(nrow = 3, ncol = 1, c(inputFlux(t), 0, 0))
+    }, t_start, t_stop)
+  }
+  if (class(In) == "TimeMap") 
+    inputFluxes = In
+  if (length(xi) == 1) 
+    fX = function(t) {
+      xi
+    }
+  if (class(xi) == "data.frame") {
+    X = xi[, 1]
+    Y = xi[, 2]
+    fX = function(t) {
+      as.numeric(spline(X, Y, xout = t)[2])
+    }
+  }
+  A = -abs(diag(ks))
+  A[2, 1] = a21
+  A[3, 1] = a31
+  At = BoundLinDecompOp(function(t) {
+    fX(t) * A
+  }, t_start, t_stop)
+  Fc = BoundFc(inputFc, lag = lag, format = "Delta14C")
+  mod = GeneralModel_14(t, At, ivList = C0, initialValF = ConstFc(F0_Delta14C, 
+    "Delta14C"), inputFluxes = inputFluxes, Fc, di = lambda, 
+    pass = pass)
+}
+```
+
+
+```{r 3-pool-mods, include = FALSE}
+## Sohi
+s.fPOM.3p <- as.numeric(rdat.sum[rdat.sum$ID == "S_LF", "frc_pct_totalC_mean"]/100)
+s.oPOM.3p <- as.numeric(rdat.sum[rdat.sum$ID == "S_IA", "frc_pct_totalC_mean"]/100)
+s.Omin.3p <- as.numeric(rdat.sum[rdat.sum$ID == "S_Omin", "frc_pct_totalC_mean"]/100)
+
+s.fPOM.3p.c <- as.numeric(s.fPOM.3p * ws.stock.nobc)
+s.oPOM.3p.c <- as.numeric(s.oPOM.3p * ws.stock.nobc)
+s.Omin.3p.c <- as.numeric(s.Omin.3p * ws.stock.nobc)
+s.stock.3p.c <- c(s.fPOM.3p.c, s.oPOM.3p.c, s.Omin.3p.c)
+
+# # check math
+# sum(s.Omin.3p.c, s.oPOM.3p.c, s.fPOM.3p.c)
+
+# adjust k values so initial 14C matches observation and steady-state stocks ~ obs
+s.kfpom.3p <- 1/3 # initial val 
+s.kopom.3p <- 1/30 # initial val
+s.komin.3p <- 1/500 # initial val
+s.ks.3p <- c(s.kfpom.3p, s.kopom.3p, s.komin.3p)
+s.tau.3p <- 1/s.ks.3p
+
+# set initial 14C
+s.F0_Delta14C.3p <- unlist(lapply(s.ks.3p, function(x) fm_14c(fm(x), 1883)))
+# check against observed
+ws.14c
+sum(s.F0_Delta14C.3p[1]*s.fPOM.3p,
+    s.F0_Delta14C.3p[2]*s.oPOM.3p,
+    s.F0_Delta14C.3p[3]*s.Omin.3p)
+
+s.a21 <- 0.02 * s.kfpom.3p # % from fast to intermediate pool
+s.a31 <- 0.01 * s.kfpom.3p # % from fast to slow pool
+
+# solve for steady state stocks
+A <- -1 * diag(s.ks.3p)
+A[2, 1] <- s.a21
+A[3, 1] <- s.a31
+sum(-1 * solve(A) %*% c(ws.in, ws.in * s.a21, ws.in * s.a31))
+
+s.3pc <- sohi.3p.mod(
+  t = yrs,
+  ks = s.ks.3p,
+  C0 = s.stock.3p.c,
+  F0_Delta14C = s.F0_Delta14C.3p,
+  In = ws.in,
+  a21 = s.a21,
+  a31 = s.a31,
+  inputFc = Datm
+)
+
+s.3p.C14m <- getF14C(s.3pc) 
+s.3p.C14 <- getF14(s.3pc)
+s.3p.HR <- getF14R(s.3pc)
+s.3p.Ctot <- getC(s.3pc)
+
+s.3ps.C14.df <- data.frame(
+  years = rep(Datm$Date, 5),
+  d14C = c(s.3p.C14[, 1], s.3p.C14[, 2], s.3p.C14[, 3], s.3p.C14m, Datm$NHc14),
+  pool = rep(c("fPOM", "oPOM", "Omin", "total C", "atm"), each = nrow(s.3p.C14))
+  )
+
+
+## Zimmerman
+z.fast.3p <- as.numeric(sum(rdat.sum[rdat.sum$ID == "Z_POM", "frc_pct_totalC_mean"]/100,
+                            rdat.sum[rdat.sum$ID == "Z_DOC", "frc_pct_totalC_mean"]/100))
+z.intm.3p <- as.numeric(sum(rdat.sum[rdat.sum$ID == "Z_S+A", "frc_pct_totalC_mean"]/100,
+                            rdat.sum[rdat.sum$ID == "Z_SC", "frc_pct_totalC_mean"]/100 - rdat.sum[rdat.sum$ID == "Z_rSOC", "frc_pct_totalC_mean"]/100))
+z.slow.3p <- as.numeric(rdat.sum[rdat.sum$ID == "Z_rSOC", "frc_pct_totalC_mean"]/100)
+
+# # check math
+# sum(z.fast.3p, z.intm.3p, z.slow.3p)
+
+z.fast.3p.c <- as.numeric(z.fast.3p * ws.stock.nobc)
+z.intm.3p.c <- as.numeric(z.intm.3p * ws.stock.nobc)
+z.slow.3p.c <- as.numeric(z.slow.3p * ws.stock.nobc)
+z.stock.3p.c <- c(z.fast.3p.c, z.intm.3p.c, z.slow.3p.c)
+
+# adjust k values so initial 14C matches observation and steady-state stocks ~ obs
+z.kfast.3p <- 1/8 # initial val 
+z.kintm.3p <- 1/20 # initial val
+z.kslow.3p <- 1/1350 # initial val
+z.ks.3p <- c(z.kfast.3p, z.kintm.3p, z.kslow.3p)
+z.tau.3p <- 1/z.ks.3p
+
+# set initial 14C
+z.F0_Delta14C.3p <- unlist(lapply(z.ks.3p, function(x) fm_14c(fm(x), 1883)))
+# check against observed
+ws.14c
+sum(z.F0_Delta14C.3p[1]*z.fast.3p,
+    z.F0_Delta14C.3p[2]*z.intm.3p,
+    z.F0_Delta14C.3p[3]*z.slow.3p)
+
+z.a21 <- 0.05 * z.kfast.3p # % from fast to intermediate pool
+z.a32 <- 0.01 * z.kintm.3p # % from intermediate to slow pool
+
+# solve for steady state stocks
+A <- -1 * diag(z.ks.3p)
+A[2, 1] <- z.a21
+A[3, 2] <- z.a32
+sum(-1 * solve(A) %*% c(ws.in, ws.in * z.a21, ws.in * z.a32))
+
+z.3ps <- ThreepSeriesModel14(
+  t = yrs,
+  ks = z.ks.3p,
+  C0 = z.stock.3p.c,
+  F0_Delta14C = z.F0_Delta14C.3p,
+  In = ws.in,
+  a21 = z.a21,
+  a32 = z.a32,
+  inputFc = Datm
+)
+
+z.3p.C14m <- getF14C(z.3ps) 
+z.3p.C14 <- getF14(z.3ps)
+z.3p.HR <- getF14R(z.3ps)
+z.3p.Ctot <- getC(z.3ps)
+
+z.3ps.C14.df <- data.frame(
+  years = rep(Datm$Date, 5),
+  d14C = c(z.3p.C14[, 1], z.3p.C14[, 2], z.3p.C14[, 3], z.3p.C14m, Datm$NHc14),
+  pool = rep(c("fast", "intm", "slow", "total C", "atm"), each = nrow(z.3p.C14))
+  )
+```
+
+```{r 3p-mod-plot}
+# # set y-axis range equal
+# range(s.3ps.C14.df$d14C, z.3ps.C14.df$d14C)
+
+# Sohi
+ggplot(s.3ps.C14.df, aes(years, d14C, color = pool)) +
+  geom_vline(xintercept = 2011, linetype = "dashed") +
+  geom_path() +
+  geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
+  scale_color_manual(
+    name = "Model pool",
+    values = c("atm" = 8,
+               "fPOM" = "#D81B60", 
+               "oPOM" = "#FFC107", 
+               "Omin" = "#1E88E5",
+               "total C" = "black")) +
+  scale_x_continuous(limits = c(1950, 2022)) +
+  scale_y_continuous(limits = c(-145, 840)) +
+  ggtitle("Sohi 3ps model") +
+  xlab("Year") +
+  ylab(expression(''*Delta*''^14*'C (‰)')) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+# Zimmerman
+ggplot(z.3ps.C14.df, aes(years, d14C, color = pool)) +
+  geom_vline(xintercept = 2011, linetype = "dashed") +
+  geom_path() +
+  geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
+  scale_color_manual(
+    name = "Model pool",
+    values = c("atm" = 8,
+               "fast" = "#D81B60", 
+               "intm" = "#FFC107", 
+               "slow" = "#1E88E5",
+               "total C" = "black")) +
+  scale_x_continuous(limits = c(1950, 2022)) +
+  scale_y_continuous(limits = c(-145, 840)) +
+  ggtitle("Zimmerman 3ps model") +
+  xlab("Year") +
+  ylab(expression(''*Delta*''^14*'C (‰)')) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+The two plots above show results for two 3-pool models fit to the Sohi and Zimmerman data, respectively. The free parameters (*k*s and transfer coefficients) were adjusted in order to fit the observed initial radiocarbon value and the steady-state stocks. The differences in carbon allocation among the 3 pools between the two schemes are quite apparent in these model formulations. The Zimmerman model performs slightly better relative to the observed value for bulk soil in 2011. In the Zimmerman model the mean age of carbon in the slow pool is much older, as would be expected within the operational definition of the pool. In contrast, the mean age of the slowest pool in the Sohi model is much younger, while the age of the intermediate pool is slightly older. 
+
+However, I still plan to run an optimization algorithm to find the optimal parameter set as well as quantify the uncertainty of the model. Unfortunately, the uncertainty is likely to be quite high.
+
+It may be worth trying to partition out the rest of the black carbon in order to say something about the relationship between the fraction ^14^C and the modeled data, but it seems like it would require too many assumptions. 
+
+
+
+
+
+
+
+
+```{r age-dist}
+# Means and density distributions for ages and transit times
+In <- matrix(nrow = 3, ncol = 1, c(ws.in, 0, 0))
+ages <- seq(0, nrow(z.3ps.C14.df)) # Time vector for density functions
+SA <- systemAge(A = s.A, u = In, a = ages)
+TT=transitTime(A=A, u=In, a=ages)
+
+# plot
+plot(ages, SA$systemAgeDensity, type="l", ylim=c(0,0.1), col=4,
+     ylab="Density function", xlab="Age or transit time (years)")
+abline(v=SA$meanSystemAge, lty=2, col=4)
+lines(ages, TT$transitTimeDensity, col=2)
+abline(v=TT$meanTransitTime,lty=2,col=2)
+legend("topright",c(paste("Mean System Age = ", round(SA$meanSystemAge,2)),
+                    paste("Mean Transit Time = ", round(TT$meanTransitTime,2))),
+       lty=2, col=c(4,2), bty="n")
+
+# density fx for pools
+pools=c("Litter + Roots","A, LF", "A, hyd", "A, res")
+par(mfrow=c(2,2))
+for(i in 1:4){
+  plot(ages, SA$poolAgeDensity[,i], type="l", main=pools[i], ylab="Probability density", xlab="Age", bty="n")
+  abline(v=SA$meanPoolAge[i], lty=2, col=4)
+}
+par(mfrow=c(1,1))
+SA$meanPoolAge[4]
+
+```
+
+
+
+Now work on implementing a cost function to optimize parameters using observed 14C
+```{r mod-opt}
+# define model function for 2-pool parallel system
+# pars_2p = 6 obj list (kfast, kslow, Cfast, Cslow, F0_Delta14C, gam)
+s.modFun_2p <- function(s.gam){
+  mod <- TwopParallelModel14(t = yrs,
+                             ks = c(s.kfast.2p, s.kslow.2p),
+                             C0 = c(s.Cfast, s.Cslow),
+                             F0_Delta14C = s.F0_Delta14C,
+                             In = ws.in,
+                             gam = s.gam,
+                             inputFc = Datm)
+  C14m <- getF14C(mod)
+  C14p <- getF14(mod)
+  return(data.frame(time = rep(yrs, 2), 
+                    d14c = c(C14m, C14p[, 2])))
+}
+
+# create data frame of observations to use for constraining model
+sohi_obs_2p <- data.frame(name = c("ws", "slow"),
+                          time = rep(2011.5, 3),
+                          d14c = c(ws.14c.nobc,
+                                   s.slow.14c,
+                                   s.fast.14c))
+
+# cost fx (evaluates error as model vs. obsv, per FME req)
+s.modCost_2p <- function(s.gam){
+  modelOutput <- s.modFun_2p(s.gam)
+  return(modCost(model = modelOutput, obs = sohi_obs_2p[, 2:3]))
+}
+
+# optimize model pars; note that upper values must be defined to prevent negative resp
+s.gam <- 0.7
+s.fit_2p <- modFit(f = s.modCost_2p, 
+                   p = s.gam, 
+                   method = "Nelder-Mead",
+                   upper = .9, 
+                   lower = .1) 
+
+s.fit_2p$par
+s.gam # wildly different
+s.fit_2p$var_ms_unweighted
+
+#####
+# Parameter optimization: FB
+#####
+# Model iterations and how many to exclude (burn-in)
+niter <- 500 # start low (time consuming)
+burnin <- 50 # low rejection rate first time (Shane used 1/3)
+
+Sys.time()
+bayes_fit_s_2p <- modMCMC(f = s.modCost_2p, 
+                          p = s.gam, 
+                          var0 = s.fit_2p$var_ms,
+                          upper = 1, 
+                          lower = 0,
+                          niter = niter, 
+                          burninlength = burnin)
+Sys.time() 
+bayes_fit_s_2p$bestpar
+bayes_fit_s_2p$pars
+bayesFacts <- data.frame(niter, burnin, bayes_fit_s_2p$naccepted)
+colnames(bayesFacts) <- c('# Iterations', "# Burn-In", "# Accepted")
+# textplot(bayesFacts)
+bayesFacts
+
+# Check that parameters have stabilized after burnin (nope)
+plot(bayes_fit_s_2p)
+
+# summary
+round(summary(bayes_fit_s_2p),4)
+
+# still figuring out how to interpret this; since I lack priors maybe not so useful?
+# Estimate parameter sensitivity and return timeseries distribution envelope
+pred_uncert_s_2p <- sensRange(s.modFun_2p, parInput = bayes_fit_s_2p$pars)
+```
+
+```{r par-search}
+mat <- expand.grid(gam = seq(0.1, 0.9, 0.1),
+                   In = seq(1, 10, 1))
+mat$stock <- NA
+mat$kfast <- NA
+mat$kslow <- NA
+for(i in 1:nrow(mat)) {
+  mat$kfast[i] <- (s.Cfast / (mat$In[i] * mat$gam[i]))^-1
+  mat$kslow[i] <- (s.Cslow / (mat$In[i] * (1-mat$gam[i])))^-1
+  A <- -1*diag(c(mat$kfast[i], mat$kslow[i]))
+  mat$stock[i] <- round(sum(-1*solve(-1*diag(c(mat$kfast[i], mat$kslow[i]))) %*% c(mat$In[i] * mat$gam[i], mat$In[i] * (1-mat$gam[i]))), 1) 
+}
+```

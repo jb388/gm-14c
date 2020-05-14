@@ -1,0 +1,43 @@
+Files: "frac C stocks for Jeff.xlsx"
+Source: Gemma Miller <Gemma.Miller@sruc.ac.uk>
+Curator: J. Beem-Miller
+Date: 03-Apr-2020
+Contents:
+  - summary statistics for the soil fraction carbon contents from each fractionation approach
+Notes:
+  - data from G. Miller thesis
+  - email accompanying file:
+    - Hi Jeff,
+
+
+
+      Glad you decided to stay with your wife and dog, definitely better not to be alone!
+
+
+
+      Spreadsheet attached has C stock / concentration info.
+
+
+
+      For the C inputs, this is from my thesis. Jo feel free to chip in here!
+
+
+
+
+
+      1. The measured 14C content (pMC) of each SOM fraction and whole soil sample is used to compare and constrain the calculated soil 14C with the measured value.
+
+      2. The ratio of C input added to the C pool, as an approximation of C turnover.
+
+      3. The SOC stock, expressed in units of g m-2is used to estimate the C added to the top soil.
+
+      4. Microsoft Excel’s Solver package is used to minimise the difference between calculated and measured soil 14C by changing the annual input to the soil C pool. In addition Solver is used to constrain the model when estimating the quantity of added C to the soil. A realistic estimate is sufficient to prevent the model producing impractical outputs resulting from the opportunity of two outcomes, associated with the rise and fall of the bomb-14C peak
+
+
+
+      Hope you’re both keeping well,
+
+
+
+      Gemma
+References:

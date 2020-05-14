@@ -1,0 +1,39 @@
+Files:
+  - "Copy of Meathop Model_NHLevin_2016.xlsx"
+  - "MRT calc_SB - Pool.xlsx"
+Source: Joanna Cloy <Joanna.Cloy@sruc.ac.uk>
+Curator: J. Beem-Miller
+Date: 09-Mar-2020
+Contents:
+  - initial modeling approach for 14C of fractions
+Notes:
+  - email accompanying files:
+    - Hi Jeff
+
+      Cc. Gemma
+
+
+
+      Thanks for meeting us today.
+
+
+
+      Had a quick look and found these data files from Sarah (MRT calc) and Mark (Meathrop model info) from an initial play around with numbers to infer MRT and C input rates.
+
+
+
+      I can see many SoilR papers in the literature but if you could send us a couple of the ones you recommended as a starting point that would be great. If you have time in June, a follow-up meeting (including Bob, Sarah and Kirsty) to have a quick look at SoilR and simple modelling for the three fractionation methods we compared would be very helpful.
+
+
+
+      Best wishes
+
+      Joanna
+  - MRT calc_SB - Pool.xlsx:
+    - each tab (except 'Data') contains mean residence time calculations for a single fraction from each of the three fractionation approaches tested
+    - note that J. Beem-Miller deleted an extra space on sheet 'Data' so that cell B3 would read WS1 not "WS 1"
+  - Copy of Meathop Model_NHLevin_2016.xlsx:
+    - single pool model approach using atmospheric 14C record and 14C contents of pool given a particular mean residence time (e.g. 1, 2, ... , n years)
+    - atmospheric 14C data from Ingeborg Levin
+References:
+  - "Levin, I., Hammer, S., Kromer, B. & Meinhardt, F. 2008 Radiocarbon observations in atmospheric CO2: Determining fossil fuel CO2 over Europe using Jungfraujoch observations as background. Science of the Total Environment 391, 211-216."
