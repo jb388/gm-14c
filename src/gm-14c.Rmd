@@ -3,11 +3,11 @@ title: "Radiocarbon modeling for Gemma Miller project"
 author: "J. Beem-Miller"
 date: "11 May 2020"
 output:
-  pdf_document:
-    latex_engine: xelatex
   html_notebook:
     toc: yes
     toc_depth: 2
+  pdf_document:
+    latex_engine: xelatex
 header_includes:
   - \usepackage[utf8]{inputenc}
   - \usepackage{float}
@@ -158,7 +158,7 @@ Assuming steady-state, we can think of the model as having 6 parameters:
 
 1) total carbon stock
 2) carbon stock partitioning coefficient (i.e. proportion of stock in pool 1 and pool 2)
-3) input partitioning coefficient $\gamma$ 
+3) input partitioning coefficient ($\gamma$)
 4) input rate
 5) decomposition rate for pool 1
 6) decomposition rate for pool 2
@@ -174,7 +174,7 @@ Knowns include:
 
 Unknowns include:
 
-* partitioning coefficent $\gamma$ (amount of input to fast pool)
+* input partitioning coefficient ($\gamma$, amount of input to fast pool)
 * fluxes (input/output)
 * decomposition rates of pools
 * initial ^14^C 
@@ -183,7 +183,7 @@ Using data from Rothamsted, we can make a guess at the initial $\Delta$^14^C of 
 
 Applying our knowns and using the assumptions above, we are left with three unknowns: 
 
-* $\gamma$
+* input partitioning coefficient ($\gamma$)
 * decomposition rates (*k*s) for the two pools (*k~fast~*, *k~slow~*)
 
 We can optimize our models for these parameters using our known data (WS-bc $\Delta$^14^C) observed in 2012.
@@ -370,7 +370,7 @@ knitr::kable(tau.df,
              align = "c")
 ```
 
-The above table shows the estimates for $\tau$ from the 2-pool parallel models using the carbon allocation from the fractionation schemes and a $\gamma$ of 0.7. However, when we compare the ^14^C values with what is observed at Rothamsted, it is clear that this model structure is not sufficient to explain what we see. The estimated initial ^14^C using these *k* values is far too young to add up to what was observed at Rothamsted. Decreasing inputs or increasing the $\gamma$ value both have the effect of decreasing the mean ^14^C content of the soil. However, the inputs seem reasonable, and even if the $\gamma$ term is increased to 0.99---90% of inputs to the fast pool---the ^14^C still doesn't add up. 
+The above table shows the estimates for $\tau$ (equal to the stock divided by the flux, or the turnover time in years) from the 2-pool parallel models using the carbon allocation from the fractionation schemes and a $\gamma$ of 0.7. However, when we compare the ^14^C values with what is observed at Rothamsted, it is clear that this model structure is not sufficient to explain what we see. The estimated initial ^14^C using these *k* values is far too young to add up to what was observed at Rothamsted. Decreasing inputs or increasing the $\gamma$ value both have the effect of decreasing the mean ^14^C content of the soil. However, the inputs seem reasonable, and even if the $\gamma$ term is increased to 0.99 (99% of inputs to the fast pool, so minimal inputs to the slow pool and a larger $\tau$) the ^14^C still doesn't add up. 
 
 The two solutions are:
 
@@ -383,7 +383,6 @@ More complicated models can be developed, but they will require more parameters,
 ```{r plot-mod-1}
 # Sohi 2-p model
 ggplot(s.2p.C14.df, aes(years, d14C, color = pool)) +
-  geom_vline(xintercept = 2011, linetype = "dashed") +
   geom_path() +
   geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
   scale_color_manual(
@@ -401,7 +400,6 @@ ggplot(s.2p.C14.df, aes(years, d14C, color = pool)) +
 
 # Zimmerman 2-p model
 ggplot(z.2p.C14.df, aes(years, d14C, color = pool)) +
-  geom_vline(xintercept = 2011, linetype = "dashed") +
   geom_path() +
   geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
   scale_color_manual(
@@ -419,7 +417,6 @@ ggplot(z.2p.C14.df, aes(years, d14C, color = pool)) +
 
 # Ghani 2-p model
 ggplot(g.2p.C14.df, aes(years, d14C, color = pool)) +
-  geom_vline(xintercept = 2011, linetype = "dashed") +
   geom_path() +
   geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
   scale_color_manual(
@@ -535,22 +532,22 @@ s.stock.3p.c <- c(s.fPOM.3p.c, s.oPOM.3p.c, s.Omin.3p.c)
 # sum(s.Omin.3p.c, s.oPOM.3p.c, s.fPOM.3p.c)
 
 # adjust k values so initial 14C matches observation and steady-state stocks ~ obs
-s.kfpom.3p <- 1/3 # initial val 
-s.kopom.3p <- 1/30 # initial val
-s.komin.3p <- 1/500 # initial val
+s.kfpom.3p <- 1/8 # initial val 
+s.kopom.3p <- 1/70 # initial val
+s.komin.3p <- 1/1650 # initial val
 s.ks.3p <- c(s.kfpom.3p, s.kopom.3p, s.komin.3p)
 s.tau.3p <- 1/s.ks.3p
 
 # set initial 14C
 s.F0_Delta14C.3p <- unlist(lapply(s.ks.3p, function(x) fm_14c(fm(x), 1883)))
 # check against observed
-ws.14c
+F0_Delta14C
 sum(s.F0_Delta14C.3p[1]*s.fPOM.3p,
     s.F0_Delta14C.3p[2]*s.oPOM.3p,
     s.F0_Delta14C.3p[3]*s.Omin.3p)
 
-s.a21 <- 0.02 * s.kfpom.3p # % from fast to intermediate pool
-s.a31 <- 0.01 * s.kfpom.3p # % from fast to slow pool
+s.a21 <- 0.01 * s.kfpom.3p # % from fast to intermediate pool
+s.a31 <- 0.001 * s.kfpom.3p # % from fast to slow pool
 
 # solve for steady state stocks
 s.A <- -1 * diag(s.ks.3p)
@@ -597,22 +594,22 @@ z.slow.3p.c <- as.numeric(z.slow.3p * ws.stock.nobc)
 z.stock.3p.c <- c(z.fast.3p.c, z.intm.3p.c, z.slow.3p.c)
 
 # adjust k values so initial 14C matches observation and steady-state stocks ~ obs
-z.kfast.3p <- 1/8 # initial val 
-z.kintm.3p <- 1/20 # initial val
-z.kslow.3p <- 1/1350 # initial val
+z.kfast.3p <- 1/3 # initial val 
+z.kintm.3p <- 1/200 # initial val
+z.kslow.3p <- 1/5000 # initial val
 z.ks.3p <- c(z.kfast.3p, z.kintm.3p, z.kslow.3p)
 z.tau.3p <- 1/z.ks.3p
 
 # set initial 14C
 z.F0_Delta14C.3p <- unlist(lapply(z.ks.3p, function(x) fm_14c(fm(x), 1883)))
 # check against observed
-ws.14c
+F0_Delta14C
 sum(z.F0_Delta14C.3p[1]*z.fast.3p,
     z.F0_Delta14C.3p[2]*z.intm.3p,
     z.F0_Delta14C.3p[3]*z.slow.3p)
 
-z.a21 <- 0.05 * z.kfast.3p # % from fast to intermediate pool
-z.a32 <- 0.01 * z.kintm.3p # % from intermediate to slow pool
+z.a21 <- 0.027 * z.kfast.3p # % from fast to intermediate pool
+z.a32 <- 0.001 * z.kintm.3p # % from intermediate to slow pool
 
 # solve for steady state stocks
 z.A <- -1 * diag(z.ks.3p)
@@ -643,7 +640,7 @@ z.3ps.C14.df <- data.frame(
   )
 ```
 
-```{r 3p-mod-plot}
+```{r 3p-mod-plot, include = FALSE}
 # # set y-axis range equal
 # range(s.3ps.C14.df$d14C, z.3ps.C14.df$d14C)
 
@@ -660,7 +657,7 @@ ggplot(s.3ps.C14.df, aes(years, d14C, color = pool)) +
                "Omin" = "#1E88E5",
                "total C" = "black")) +
   scale_x_continuous(limits = c(1950, 2022)) +
-  scale_y_continuous(limits = c(-145, 840)) +
+  scale_y_continuous(limits = c(-385, 840)) +
   ggtitle("Sohi 3ps model") +
   xlab("Year") +
   ylab(expression(''*Delta*''^14*'C (‰)')) +
@@ -680,7 +677,7 @@ ggplot(z.3ps.C14.df, aes(years, d14C, color = pool)) +
                "slow" = "#1E88E5",
                "total C" = "black")) +
   scale_x_continuous(limits = c(1950, 2022)) +
-  scale_y_continuous(limits = c(-145, 840)) +
+  scale_y_continuous(limits = c(-385, 840)) +
   ggtitle("Zimmerman 3ps model") +
   xlab("Year") +
   ylab(expression(''*Delta*''^14*'C (‰)')) +
@@ -688,16 +685,12 @@ ggplot(z.3ps.C14.df, aes(years, d14C, color = pool)) +
   theme(panel.grid = element_blank())
 ```
 
-The two plots above show results for two 3-pool models fit to the Sohi and Zimmerman data, respectively. The free parameters (*k*s and transfer coefficients) were adjusted in order to fit the observed initial radiocarbon value and the steady-state stocks. The differences in carbon allocation among the 3 pools between the two schemes are quite apparent in these model formulations. The Zimmerman model performs slightly better relative to the observed value for bulk soil in 2011. In the Zimmerman model the mean age of carbon in the slow pool is much older, as would be expected within the operational definition of the pool. In contrast, the mean age of the slowest pool in the Sohi model is much younger, while the age of the intermediate pool is slightly older. 
+In order to determine the initial parameter set, the free parameters (*k*s and transfer coefficients) were adjusted in order to fit the observed initial radiocarbon value and the steady-state stocks. The differences in carbon allocation among the 3 pools between the two schemes are quite apparent in these model formulations. For the manually fit models, the Sohi model performs slightly better relative to the observed value for bulk soil in 2011. In the Zimmerman model the mean age of carbon in the slow pool is much older, as would be expected within the operational definition of the pool. In contrast, the mean age of the slowest pool in the Sohi model is much younger, while the age of the fast pool is slightly older (data not shown in report).
 
-However, I still plan to run an optimization algorithm to find the optimal parameter set as well as quantify the uncertainty of the model. Unfortunately, the uncertainty is likely to be quite high.
-
-It may be worth trying to partition out the rest of the black carbon in order to say something about the relationship between the fraction ^14^C and the modeled data, but it seems like it would require too many assumptions. 
-
-```{r age-dist}
+```{r age-dist, include = FALSE}
 # Means and density distributions for ages and transit times
 In <- matrix(nrow = 3, ncol = 1, c(ws.in, 0, 0))
-ages <- seq(1, 4000) # Time vector for density functions
+ages <- seq(0, 5500) # Time vector for density functions
 
 # Sohi
 s.SA <- systemAge(A = s.A, u = In, a = ages)
@@ -721,11 +714,10 @@ knitr::kable(sa.tt.df,
              col.names = c("Model", "Pool", "Mean age", "Transit time"),
              caption = "Mean ages and transit time (years) for the 3-pool models",
              align = "c")
+# The above table shows the mean ages and transit times estimated from the manually fit models. The Sohi model has a slightly older mean age because of the higher amount of carbon partitioned to the slowest cycling pool. Interstingly the transit times are very similar, likely because all of the inputs flow through the fastest pool, which dominates the respiration flux. 
 ```
 
-The above table shows the mean ages and transit times estimated from the manually fit models. The Sohi model has a substantially older mean age because of the higher amount of carbon partitioned to the slowest cycling pool. Interstingly the transit times are very similar, likely because all of the inputs flow through the fastest pool, which dominates the respiration flux. 
-
-```{r ages-tt-plots}
+```{r ages-tt-plots, include = FALSE}
 # data frame for plotting age distributions
 sa.dist.df <- data.frame(Model = rep(c("Sohi", "Zimmerman"), each = length(ages)),
                          Age = rep(ages, 2),
@@ -771,8 +763,8 @@ sa.pool.dist.df %>%
   scale_color_manual(
     name = "Model Pool",
     values = c("fast" = "#D81B60")) +
-  scale_x_continuous(limits = c(0, 50)) +
-  ggtitle("Fast pool age distributions") +
+  scale_x_continuous(limits = c(0, 40)) +
+  ggtitle("Fast pool age distributions (manual fit)") +
   theme_bw() +
   theme(panel.grid = element_blank())
 
@@ -786,7 +778,7 @@ sa.pool.dist.df %>%
     name = "Model Pool",
     values = c("intm" = "#FFC107")) +
   scale_x_continuous(limits = c(0, 250)) +
-  ggtitle("Intermediate pool age distributions") +
+  ggtitle("Intermediate pool age distributions (manual fit)") +
   theme_bw() +
   theme(panel.grid = element_blank())
 
@@ -800,16 +792,15 @@ sa.pool.dist.df %>%
     name = "Model Pool",
     values = c("slow" = "#1E88E5")) +
   # scale_x_continuous(limits = c(0, 1000)) +
-  ggtitle("Slow pool age distributions") +
+  ggtitle("Slow pool age distributions (manual fit") +
   theme_bw() +
   theme(panel.grid = element_blank())
+
+# Vertical lines in these plots show the mean ages for each pool and model. In this case all of the pools show quite different patterns between the two models. Interestingly the system age for the Zimmerman model age is younger as is mean age of the fast pool, but the intermediate and slow pool mean ages are younger for the Sohi model.
 ```
 
-Vertical lines in the above plots show the mean ages for each pool and model. In this case the intermediate aged pool is the most similar between the two models, while the fast and slow pools look quite different.
-
-
 ## 3-pool model optimization
-Now work on implementing a cost function to optimize parameters using observed 14C
+The manually fit models perform moderately well, but to avoid bias we will implement an objective cost function to optimize the parameter set: using the Rothamsted observed ^14^C from 1883 and the value observed for the bulk soil (exclusing black carbon) in 2011. We can also use the carbon stocks observed in 2011 as a constraint. If we assume the system is at steady state, we can apply the constraint for the duration of the model run (1883 to 2022).
 
 ```{r mod-opt}
 ## Sohi
@@ -849,7 +840,7 @@ obs.cstock <- data.frame(time = c(1884.5, 2011.5),
                          cStock = c(ws.stock.nobc, ws.stock.nobc))
 
 # Cost function (evaluates error as model vs. obsv, per FME req)
-mod.Cost <- function(pars){
+s.mod.Cost <- function(pars){
   modelOutput <- s.modFun_3p(pars)
   cost1 <- modCost(model = modelOutput, obs = obs.14c)
   cost2 <- modCost(model = modelOutput, obs = obs.cstock, cost = cost1)
@@ -857,15 +848,15 @@ mod.Cost <- function(pars){
 }
 
 # optimize model pars; note that upper values must be defined to prevent negative resp
-s.mod.fit <- modFit(f = mod.Cost,
+s.mod.fit <- modFit(f = s.mod.Cost,
                     p = s.pars.i, 
                     method = 'Nelder-Mead', 
-                    upper = c(1, .1, .1, .5, .1), 
+                    upper = c(5, .1, .1, .5, .1), 
                     lower = c(0, 0, 0, 0, 0))
 
 # look at estimates
 s.mod.fit$par
-s.pars.i # much higher k value for fPOM, much higher transfer coefficient to oPOM, lower to Omin
+s.pars.i # lower k value for fPOM, much higher k for oPOM, similar transfer coefficients
 
 # Rerun model and plot results against manually fit parameters
 s.F0_Delta14C.fit <- unlist(lapply(s.mod.fit$par[1:3], function(x) fm_14c(fm(x), 1883)))
@@ -916,18 +907,25 @@ z.modFun_3p <- function(pars){
 z.pars.i <- c(z.kfast = z.kfast.3p, 
               z.kintm = z.kintm.3p, 
               z.kslow = z.kslow.3p, 
-              a21 = z.a21, a32 = z.a32)
+              a21 = z.a21, 
+              a32 = z.a32)
+z.mod.Cost <- function(pars){
+  modelOutput <- z.modFun_3p(pars)
+  cost1 <- modCost(model = modelOutput, obs = obs.14c)
+  cost2 <- modCost(model = modelOutput, obs = obs.cstock, cost = cost1)
+  return(cost2)
+}
 
 # optimize model pars; note that upper values must be defined to prevent negative resp
-z.mod.fit <- modFit(f = mod.Cost,
+z.mod.fit <- modFit(f = z.mod.Cost,
                     p = z.pars.i, 
-                    method = 'Nelder-Mead', 
-                    upper = c(5, 1, .1, .5, .1), 
+                    method = 'Nelder-Mead',
+                    upper = c(5, .1, .1, .5, .1),
                     lower = c(0, 0, 0, 0, 0))
 
 # look at estimates
 z.mod.fit$par
-z.pars.i # much higher k value for fast and lower for intm pools, much higher t coef to oPOM, lower to Omin
+z.pars.i # much lower k value for fast pool and much higher for intm pool, slightly higher t coef to slow pool
 
 # Rerun model and plot results against manually fit parameters
 z.F0_Delta14C.fit <- unlist(lapply(z.mod.fit$par[1:3], function(x) fm_14c(fm(x), 1883)))
@@ -951,25 +949,23 @@ z.3ps.C14.df.fit <- data.frame(
   d14C = c(z.3p.C14.fit[, 1], z.3p.C14.fit[, 2], z.3p.C14.fit[, 3], z.3p.C14m.fit, Datm$NHc14),
   pool = rep(c("fast", "intm", "slow", "total C", "atm"), each = nrow(z.3p.C14.fit))
   )
-
-
-# summarize parameter sets
-s.3p.opt.par <- data.frame(par = c("kfPOM", "koPOM", "kOmin", "fPOM to oPOM", "fPOM to Omin"),
-                           value = round(s.mod.fit$par, 5))
-
-knitr::kable(s.3p.opt.par,
-             caption = "Optimized parameters: Sohi 3-pool model",
-             col.names = c("Parameter", "Value"),
-             align = "c")
 ```
 
 ```{r opt-mod-plots}
 # plot optimized models
+# range(s.3ps.C14.df.fit$d14C, z.3ps.C14.df.fit$d14C)
+obs.14c.df <- data.frame(years = obs.14c$time,
+                         d14C = obs.14c$d14c,
+                         Observation = c("total C obs", "total C obs"))
+
 # Sohi
-ggplot(s.3ps.C14.df, aes(years, d14C, color = pool)) +
-  geom_path() +
-  geom_path(data = s.3ps.C14.df.fit, linetype = "dashed") +
-  geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
+s.opt.mod.df <- rbind(s.3ps.C14.df, s.3ps.C14.df.fit)
+s.opt.mod.df$Model <- rep(c("manual", "optimized"), each = nrow(s.3ps.C14.df))
+s.opt.mod.df %>%
+  filter(Model == "optimized") %>%
+  ggplot(., aes(years, d14C)) +
+  geom_path(aes(linetype = Model, color = pool)) +
+  geom_point(data = obs.14c.df, aes(shape = Observation), size = 3) + 
   scale_color_manual(
     name = "Model pool",
     values = c("atm" = 8,
@@ -978,7 +974,7 @@ ggplot(s.3ps.C14.df, aes(years, d14C, color = pool)) +
                "Omin" = "#1E88E5",
                "total C" = "black")) +
   scale_x_continuous(limits = c(1950, 2022)) +
-  # scale_y_continuous(limits = c(-145, 840)) +
+  scale_y_continuous(limits = c(-425, 840)) +
   ggtitle("Sohi 3ps model: initial optimization") +
   xlab("Year") +
   ylab(expression(''*Delta*''^14*'C (‰)')) +
@@ -986,10 +982,13 @@ ggplot(s.3ps.C14.df, aes(years, d14C, color = pool)) +
   theme(panel.grid = element_blank())
 
 # Zimmerman
-ggplot(z.3ps.C14.df, aes(years, d14C, color = pool)) +
-  geom_path() +
-  geom_path(data = z.3ps.C14.df.fit, linetype = "dashed") +
-  geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
+z.opt.mod.df <- rbind(z.3ps.C14.df, z.3ps.C14.df.fit)
+z.opt.mod.df$Model <- rep(c("manual", "optimized"), each = nrow(z.3ps.C14.df)) 
+z.opt.mod.df %>%
+  filter(Model == "optimized") %>%
+  ggplot(., aes(years, d14C)) +
+  geom_path(aes(linetype = Model, color = pool)) +
+  geom_point(data = obs.14c.df, aes(shape = Observation), size = 3) + 
   scale_color_manual(
     name = "Model pool",
     values = c("atm" = 8,
@@ -998,58 +997,195 @@ ggplot(z.3ps.C14.df, aes(years, d14C, color = pool)) +
                "slow" = "#1E88E5",
                "total C" = "black")) +
   scale_x_continuous(limits = c(1950, 2022)) +
-  # scale_y_continuous(limits = c(-145, 840)) +
-  ggtitle("Zimmerman 3ps model") +
+  scale_y_continuous(limits = c(-425, 840)) +
+  ggtitle("Zimmerman 3ps model: initial optimization") +
   xlab("Year") +
   ylab(expression(''*Delta*''^14*'C (‰)')) +
   theme_bw() +
   theme(panel.grid = element_blank())
 ```
 
-```{r bayes-fits}
-# Bayesian parameter optimization
-# Model iterations and how many to exclude (burn-in)
-niter <- 5000 # start low (time consuming)
-burnin <- 500 # low rejection rate first time (Shane used 1/3)
+```{r opt-mod-mats}
+# Means and density distributions for ages and transit times
+In <- matrix(nrow = 3, ncol = 1, c(ws.in, 0, 0))
+ages <- seq(0, 6500) # Time vector for density functions
 
-# run monte carlo estimatation with optimized parameters
-start <- Sys.time()
-bayes_fit_s_3p <- modMCMC(f = s.mod.Cost, 
-                          p = s.mod.fit$par, 
-                          var0 = s.mod.fit$var_ms,
-                          upper = c(5, 1, 1, .5, .1), 
-                          lower = c(0, 0, 0, 0, 0),
-                          niter = niter, 
-                          burninlength = burnin)
-end <- Sys.time() 
-end - start # 4 min w/ 1000 iterations
+# model matrices
+# Sohi
+s.A.fit <- -1 * diag(s.mod.fit$par[1:3])
+s.A.fit[2, 1] <- s.mod.fit$par[4]
+s.A.fit[3, 1] <- s.mod.fit$par[5]
+# sum(-1 * solve(s.A.fit) %*% c(ws.in, ws.in * s.mod.fit$par[4], ws.in * s.mod.fit$par[5]))
+# just over 2x stocks
 
-bayes_fit_s_3p$bestpar
-bayes_fit_s_3p$pars
-bayesFacts <- data.frame(niter, burnin, bayes_fit_s_3p$naccepted)
-colnames(bayesFacts) <- c('# Iterations', "# Burn-In", "# Accepted")
-
-# Check that parameters have stabilized after burnin (nope)
-plot(bayes_fit_s_3p)
-
-# summary
-round(summary(bayes_fit_s_2p),4)
-
-# still figuring out how to interpret this; since I lack priors maybe not so useful?
-# Estimate parameter sensitivity and return timeseries distribution envelope
-pred_uncert_s_2p <- sensRange(s.modFun_2p, parInput = bayes_fit_s_2p$pars)
+# Zimmerman
+z.A.fit <- -1 * diag(z.mod.fit$par[1:3])
+z.A.fit[2, 1] <- z.mod.fit$par[4]
+z.A.fit[3, 2] <- z.mod.fit$par[5]
+# sum(-1 * solve(z.A.fit) %*% c(ws.in, ws.in * z.mod.fit$par[4], ws.in * z.mod.fit$par[5]))
+# just under 2x stocks
 ```
 
-```{r par-search}
-mat <- expand.grid(gam = seq(0.1, 0.9, 0.1),
-                   In = seq(1, 10, 1))
-mat$stock <- NA
-mat$kfast <- NA
-mat$kslow <- NA
-for(i in 1:nrow(mat)) {
-  mat$kfast[i] <- (s.Cfast / (mat$In[i] * mat$gam[i]))^-1
-  mat$kslow[i] <- (s.Cslow / (mat$In[i] * (1-mat$gam[i])))^-1
-  A <- -1*diag(c(mat$kfast[i], mat$kslow[i]))
-  mat$stock[i] <- round(sum(-1*solve(-1*diag(c(mat$kfast[i], mat$kslow[i]))) %*% c(mat$In[i] * mat$gam[i], mat$In[i] * (1-mat$gam[i]))), 1) 
-}
+The fast and intermediate curves look similar between the models, while the slow curve is much more depleted in the Zimmerman model, as would be expected operationally. Both models fit the 2011 observation well, but both also have much higher steady-state carbon stocks than observed: `r round(sum(-1 * solve(s.A.fit) %*% c(ws.in, ws.in * s.mod.fit$par[4], ws.in * s.mod.fit$par[5])), 1)` (Sohi modeled), `r round(sum(-1 * solve(z.A.fit) %*% c(ws.in, ws.in * z.mod.fit$par[4], ws.in * z.mod.fit$par[5])), 1)` (Zimmerman modeled), verus `r round(ws.stock.nobc, 1)` (observed). Interestingly, note that the observed soil ^14^C in 2011 is very close to the atmosphere. However, if we believe the model this is just a coincidence of timing.
+
+```{r age-dist-opt}
+# Sohi
+s.SA.fit <- systemAge(A = s.A.fit, u = In, a = ages)
+s.TT.fit <- transitTime(A = s.A.fit, u = In, a = ages)
+
+# Zimmerman
+z.SA.fit <- systemAge(A = z.A.fit, u = In, a = ages)
+z.TT.fit <- transitTime(A = z.A.fit, u = In, a = ages)
+
+# age and transit time df
+sa.tt.df.fit <- data.frame(model = c("Sohi", "Zimmerman", rep(c("Sohi", "Zimmerman"), each = 3)),
+                          pool = c("whole soil", "whole soil", "fPOM", "oPOM", "Omin", "fast", "intm", "slow"),
+                          ages = c(s.SA.fit$meanSystemAge, z.SA.fit$meanSystemAge,
+                                   s.SA.fit$meanPoolAge, z.SA.fit$meanPoolAge),
+                          tt = c(s.TT.fit$meanTransitTime, z.TT.fit$meanTransitTime, rep(NA, 6)))
+sa.tt.df.fit[ , 3] <- round(sa.tt.df.fit[ , 3])
+sa.tt.df.fit[ , 4] <- round(sa.tt.df.fit[ , 4], 1)
+sa.tt.df.fit[3:8, 4] <- ""
+
+knitr::kable(sa.tt.df.fit,
+             col.names = c("Model", "Pool", "Mean age", "Transit time"),
+             caption = "Mean ages and transit time (years) for the fitted 3-pool models",
+             align = "c")
 ```
+
+The above table shows the mean ages and transit times estimated from the optimized model fits. Here the Sohi model has a substantially older mean age for the whole soil than does the Zimmerman model, owing to the much higher carbon content of the slowest cycling pool. The mean ages for the two faster pools are quite similar, but the Zimmerman slow pool is much older. Following the trend in mean ages, the mean transit time slight slower in the Sohi model than in the Zimmerman model, but only by ca. 4 years. 
+
+```{r ages-tt-plots-fit}
+# data frame for plotting age distributions
+sa.dist.df.fit <- data.frame(Model = rep(c("Sohi", "Zimmerman"), each = length(ages)),
+                             Age = rep(ages, 2),
+                             Density = c(s.SA.fit$systemAgeDensity,
+                                         z.SA.fit$systemAgeDensity))
+
+sa.pool.dist.df.fit <- data.frame(Model = rep(c("Sohi", "Zimmerman"), each = 3*length(ages)),
+                                  Pool = rep(rep(c("fast", "intm", "slow"), each = length(ages)), 2),
+                                  Age = rep(ages, 6),
+                                  Density = c(s.SA.fit$poolAgeDensity,
+                                              z.SA.fit$poolAgeDensity))
+
+# plot age distributions, then pool age distributions
+ggplot(sa.dist.df.fit, aes(Age, Density)) +
+  geom_path(aes(linetype = Model)) +
+  geom_vline(xintercept = s.SA.fit$meanSystemAge, color = "gray") +
+  geom_vline(xintercept = z.SA.fit$meanSystemAge, color = "gray", linetype = 2) +
+  scale_x_continuous(limits = c(0, 400)) +
+  scale_y_continuous(limits = c(0, .03)) +
+  ggtitle("Mean system age distributions (fitted 3-pool models)") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+sa.pool.dist.df.fit %>%
+  filter(Pool == "fast") %>%
+  ggplot(., aes(Age, Density, color = Pool)) +
+  geom_path(aes(linetype = Model)) +
+  geom_vline(xintercept = s.SA.fit$meanPoolAge[1], color = "gray") +
+  geom_vline(xintercept = z.SA.fit$meanPoolAge[1],  color = "gray", linetype = 2) +
+  scale_color_manual(
+    name = "Model Pool",
+    values = c("fast" = "#D81B60")) +
+  scale_x_continuous(limits = c(0, 70)) +
+  ggtitle("Fast pool age distributions (fitted)") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+sa.pool.dist.df.fit %>%
+  filter(Pool == "intm") %>%
+  ggplot(., aes(Age, Density, color = Pool)) +
+  geom_path(aes(linetype = Model)) +
+  geom_vline(xintercept = s.SA.fit$meanPoolAge[2], color = "gray") +
+  geom_vline(xintercept = z.SA.fit$meanPoolAge[2],  color = "gray", linetype = 2) +
+  scale_color_manual(
+    name = "Model Pool",
+    values = c("intm" = "#FFC107")) +
+  scale_x_continuous(limits = c(0, 100)) +
+  ggtitle("Intermediate pool age distributions (fitted)") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+sa.pool.dist.df.fit %>%
+  filter(Pool == "slow") %>%
+  ggplot(., aes(Age, Density, color = Pool)) +
+  geom_path(aes(linetype = Model)) +
+  geom_vline(xintercept = s.SA.fit$meanPoolAge[3], color = "gray") +
+  geom_vline(xintercept = z.SA.fit$meanPoolAge[3],  color = "gray", linetype = 2) +
+  scale_color_manual(
+    name = "Model Pool",
+    values = c("slow" = "#1E88E5")) +
+  # scale_x_continuous(limits = c(0, 1000)) +
+  ggtitle("Slow pool age distributions (fitted)") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+Vertical lines in the above plots show the mean ages for each pool and model. As with the mean ages, age distributions look similar within the two fastest model pools for these fitted models, despite overall mean ages being quite different. The major difference, as was evident from the mean ages, is in the distribution and mean age of the slow pools.
+
+## Bayesian parameter estimation
+Most optimization algorithms run the risk of finding local optima and missing the global optima, especially when the model system is underconstrained. One approach to mitigate this problem is to use a Monte Carlo method. Another benefit of the Monte Carlo approach is that it can be used to generate a confidence "envelope" around the parameter estimates, and thereby provide an estimate of the uncertainty of the model predictions.
+
+I started with 5000 iterations, but some of the parameters did not stabilize within that number of runs. Perhaps 15000 will be better, but that will take about 1 hour per model on my machine. Owing to the long run time of these calculations, I have split the MCMC code into a separate script. The output of that script can then be loaded back into this file to generate the report.
+
+```{r load-bayes-fits}
+# the following .RData file is generated by script "/Users/jeff/gm-14c/src/gm-14c-mcmc-bayes.R"
+# for new analyses this must be run 
+load(file = "./gm-14c.14-05-2020.RData")
+```
+
+
+```{r bayes-fit-sohi-plot}
+# extract sensitivity data from bayesian analysis for plotting
+sens_s_3p.df <- sens_s_3p[1:length(yrs), c("x", "Mean", "q05", "q95")]
+colnames(sens_s_3p.df) <- c("years", "d14C", "q05", "q95")
+  
+# plot
+ggplot(s.3ps.C14.df.bayes, aes(years, d14C)) +
+  geom_ribbon(data = sens_s_3p.df, aes(ymin = q95, ymax = q05), fill = "gray") +
+  geom_path(aes(color = pool)) +
+  geom_point(data = obs.14c.df, aes(shape = Observation), size = 3) +
+  scale_color_manual(
+  name = "Model pool",
+  values = c("atm" = 8,
+             "fPOM" = "#D81B60",
+             "oPOM" = "#FFC107",
+             "Omin" = "#1E88E5",
+             "total C" = "black")) +
+  scale_x_continuous(limits = c(1950, 2022)) +
+  scale_y_continuous(limits = c(-425, 840)) +
+  ggtitle("Sohi 3ps model: bayesian optimization") +
+  xlab("Year") +
+  ylab(expression(''*Delta*''^14*'C (‰)')) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+```{r bayes-fit-zim-plot}
+# extract sensitivity data from bayesian analysis for plotting
+sens_z_3p.df <- sens_z_3p[1:length(yrs), c("x", "Mean", "q05", "q95")]
+colnames(sens_z_3p.df) <- c("years", "d14C", "q05", "q95")
+  
+# plot
+ggplot(z.3ps.C14.df.bayes, aes(years, d14C)) +
+  geom_ribbon(data = sens_z_3p.df, aes(ymin = q95, ymax = q05), fill = "gray") +
+  geom_path(aes(color = pool)) +
+  geom_point(data = obs.14c.df, aes(shape = Observation), size = 3) +
+  scale_color_manual(
+  name = "Model pool",
+  values = c("atm" = 8,
+             "fast" = "#D81B60",
+             "intm" = "#FFC107",
+             "slow" = "#1E88E5",
+             "total C" = "black")) +
+  scale_x_continuous(limits = c(1950, 2022)) +
+  # scale_y_continuous(limits = c(-425, 840)) +
+  ggtitle("Zimmerman 3ps model: bayesian optimization") +
+  xlab("Year") +
+  ylab(expression(''*Delta*''^14*'C (‰)')) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+The above plots show the best-fit parameter set from the 5000 iteration MCMC run with a 95% confidence interval plotted around the whole soil ^14^C estimate. Both models fit the data reasonably well, but with very different interpretations in terms of the mean age of the soil. With the current dataset, owing the issues with the black carbon contamination, it is difficult to assess which model is more accurate.
