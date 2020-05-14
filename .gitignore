@@ -1,0 +1,8 @@
+##ignore mac files
+.DS_Store
+##ignore R files
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.Rapp.history
