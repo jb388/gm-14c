@@ -20,6 +20,7 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
 ```{r setup, include = FALSE}
 library(ggplot2)
 library(dplyr)
+# devtools::install_github("MPIBGC-TEE/SoilR-exp/pkg")
 library(SoilR)
 library(ISRaD) # for graven dataset
 library(openxlsx)
@@ -436,6 +437,8 @@ ggplot(g.2p.C14.df, aes(years, d14C, color = pool)) +
 ```
 The above plots of ^14^C over time for the 2-pool parallel models show that the models are not very different, which makes sense given that that carbon distribution was not very different, and that was the only difference between the models. However, since the estimates for the $\Delta$^14^C are far too enriched to match the observation, we need to implement some form of the above changes.
 
+
+## 3-pool models
 The Ghani fractionation scheme was intended to diagnose soil quality, and was developed more from an agronomic perpective rather than for parameterizing soil carbon models. In the study from which this method came the authors show that the HWEC pool correlates well with microbial biomass and soil carbohydrates, but the WSC pool is hardly discussed. Interestingly, the WSC pool from this fractionation scheme shows evidence of black carbon, but the HWEC pool does not. Perhaps this relates to the correlation with microbial biomass: i.e. WSC is simply water soluble material, including black carbon, but the HWEC material is primarily microbial in origin, and since the WSC pool has already been removed, this effectively excludes black carbon.
 
 However, since these pools are very similar in function, it does not seem like it would be very helful to use them to parameterize separate soil carbon pools. Since we already saw that the two pool models are not effective for this dataset, I will only focus on the Zimmerman and Sohi fractionation schemes for the future analysis.
@@ -477,7 +480,7 @@ sohi.3p.mod <- function(t,
   if (length(C0) != 3) 
     stop("the vector with initial conditions must be of length = 3")
   if (length(In) == 1) 
-    inputFluxes = BoundInFlux(function(t) {
+    inputFluxes = BoundInFluxes(function(t) {
       matrix(nrow = 3, ncol = 1, c(In, 0, 0))
     }, t_start, t_stop)
   if (class(In) == "data.frame") {
@@ -486,7 +489,7 @@ sohi.3p.mod <- function(t,
     inputFlux = function(t0) {
       as.numeric(spline(x, y, xout = t0)[2])
     }
-    inputFluxes = BoundInFlux(function(t) {
+    inputFluxes = BoundInFluxes(function(t) {
       matrix(nrow = 3, ncol = 1, c(inputFlux(t), 0, 0))
     }, t_start, t_stop)
   }
@@ -511,8 +514,8 @@ sohi.3p.mod <- function(t,
   }, t_start, t_stop)
   Fc = BoundFc(inputFc, lag = lag, format = "Delta14C")
   mod = GeneralModel_14(t, At, ivList = C0, initialValF = ConstFc(F0_Delta14C, 
-    "Delta14C"), inputFluxes = inputFluxes, Fc, di = lambda, 
-    pass = pass)
+    "Delta14C"), inputFluxes = inputFluxes, inputFc = Fc, 
+    di = lambda, pass = pass)
 }
 ```
 
@@ -550,10 +553,10 @@ s.a21 <- 0.02 * s.kfpom.3p # % from fast to intermediate pool
 s.a31 <- 0.01 * s.kfpom.3p # % from fast to slow pool
 
 # solve for steady state stocks
-A <- -1 * diag(s.ks.3p)
-A[2, 1] <- s.a21
-A[3, 1] <- s.a31
-sum(-1 * solve(A) %*% c(ws.in, ws.in * s.a21, ws.in * s.a31))
+s.A <- -1 * diag(s.ks.3p)
+s.A[2, 1] <- s.a21
+s.A[3, 1] <- s.a31
+sum(-1 * solve(s.A) %*% c(ws.in, ws.in * s.a21, ws.in * s.a31))
 
 s.3pc <- sohi.3p.mod(
   t = yrs,
@@ -612,10 +615,10 @@ z.a21 <- 0.05 * z.kfast.3p # % from fast to intermediate pool
 z.a32 <- 0.01 * z.kintm.3p # % from intermediate to slow pool
 
 # solve for steady state stocks
-A <- -1 * diag(z.ks.3p)
-A[2, 1] <- z.a21
-A[3, 2] <- z.a32
-sum(-1 * solve(A) %*% c(ws.in, ws.in * z.a21, ws.in * z.a32))
+z.A <- -1 * diag(z.ks.3p)
+z.A[2, 1] <- z.a21
+z.A[3, 2] <- z.a32
+sum(-1 * solve(z.A) %*% c(ws.in, ws.in * z.a21, ws.in * z.a32))
 
 z.3ps <- ThreepSeriesModel14(
   t = yrs,
@@ -691,44 +694,121 @@ However, I still plan to run an optimization algorithm to find the optimal param
 
 It may be worth trying to partition out the rest of the black carbon in order to say something about the relationship between the fraction ^14^C and the modeled data, but it seems like it would require too many assumptions. 
 
-
-
-
-
-
-
-
 ```{r age-dist}
 # Means and density distributions for ages and transit times
 In <- matrix(nrow = 3, ncol = 1, c(ws.in, 0, 0))
-ages <- seq(0, nrow(z.3ps.C14.df)) # Time vector for density functions
-SA <- systemAge(A = s.A, u = In, a = ages)
-TT=transitTime(A=A, u=In, a=ages)
+ages <- seq(1, 4000) # Time vector for density functions
 
-# plot
-plot(ages, SA$systemAgeDensity, type="l", ylim=c(0,0.1), col=4,
-     ylab="Density function", xlab="Age or transit time (years)")
-abline(v=SA$meanSystemAge, lty=2, col=4)
-lines(ages, TT$transitTimeDensity, col=2)
-abline(v=TT$meanTransitTime,lty=2,col=2)
-legend("topright",c(paste("Mean System Age = ", round(SA$meanSystemAge,2)),
-                    paste("Mean Transit Time = ", round(TT$meanTransitTime,2))),
-       lty=2, col=c(4,2), bty="n")
+# Sohi
+s.SA <- systemAge(A = s.A, u = In, a = ages)
+s.TT <- transitTime(A = s.A, u = In, a = ages)
 
-# density fx for pools
-pools=c("Litter + Roots","A, LF", "A, hyd", "A, res")
-par(mfrow=c(2,2))
-for(i in 1:4){
-  plot(ages, SA$poolAgeDensity[,i], type="l", main=pools[i], ylab="Probability density", xlab="Age", bty="n")
-  abline(v=SA$meanPoolAge[i], lty=2, col=4)
-}
-par(mfrow=c(1,1))
-SA$meanPoolAge[4]
+# Zimmerman
+z.SA <- systemAge(A = z.A, u = In, a = ages)
+z.TT <- transitTime(A = z.A, u = In, a = ages)
 
+# age and transit time df
+sa.tt.df <- data.frame(model = c("Sohi", "Zimmerman", rep(c("Sohi", "Zimmerman"), each = 3)),
+                       pool = c("whole soil", "whole soil", "fPOM", "oPOM", "Omin", "fast", "intm", "slow"),
+                       ages = c(s.SA$meanSystemAge, z.SA$meanSystemAge,
+                                s.SA$meanPoolAge, z.SA$meanPoolAge),
+                       tt = c(s.TT$meanTransitTime, z.TT$meanTransitTime, rep(NA, 6)))
+sa.tt.df[ , 3] <- round(sa.tt.df[ , 3])
+sa.tt.df[ , 4] <- round(sa.tt.df[ , 4], 1)
+sa.tt.df[3:8, 4] <- ""
+
+knitr::kable(sa.tt.df,
+             col.names = c("Model", "Pool", "Mean age", "Transit time"),
+             caption = "Mean ages and transit time (years) for the 3-pool models",
+             align = "c")
 ```
 
+The above table shows the mean ages and transit times estimated from the manually fit models. The Sohi model has a substantially older mean age because of the higher amount of carbon partitioned to the slowest cycling pool. Interstingly the transit times are very similar, likely because all of the inputs flow through the fastest pool, which dominates the respiration flux. 
+
+```{r ages-tt-plots}
+# data frame for plotting age distributions
+sa.dist.df <- data.frame(Model = rep(c("Sohi", "Zimmerman"), each = length(ages)),
+                         Age = rep(ages, 2),
+                         Density = c(s.SA$systemAgeDensity,
+                                     z.SA$systemAgeDensity))
+
+sa.pool.dist.df <- data.frame(Model = rep(c("Sohi", "Zimmerman"), each = 3*length(ages)),
+                              Pool = rep(rep(c("fast", "intm", "slow"), each = length(ages)), 2),
+                              Age = rep(ages, 6),
+                              Density = c(s.SA$poolAgeDensity,
+                                          z.SA$poolAgeDensity))
+
+# plot age distributions, then pool age distributions
+ggplot(sa.dist.df, aes(Age, Density)) +
+  geom_path(aes(linetype = Model)) +
+  geom_vline(xintercept = s.SA$meanSystemAge) +
+  geom_vline(xintercept = z.SA$meanSystemAge, linetype = 2) +
+  scale_x_continuous(limits = c(0, 310)) +
+  ggtitle("Mean system age distributions (3-pool models)") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+# # Too hard to visualize when plotted on same scale
+# ggplot(sa.pool.dist.df, aes(Age, Density, color = Pool)) +
+#   geom_path(aes(linetype = Model)) +
+#   scale_color_manual(
+#     name = "Model Pool",
+#     values = c("fast" = "#D81B60",
+#                "intm" = "#FFC107",
+#                "slow" = "#1E88E5")) +
+#   scale_x_continuous(limits = c(0, 310)) +
+#   scale_y_continuous(limits = c(0, .035)) +
+#   facet_grid(cols = vars(Pool)) +
+#   theme_bw() +
+#   theme(panel.grid = element_blank())
+
+sa.pool.dist.df %>%
+  filter(Pool == "fast") %>%
+  ggplot(., aes(Age, Density, color = Pool)) +
+  geom_path(aes(linetype = Model)) +
+  geom_vline(xintercept = s.SA$meanPoolAge[1], color = "gray") +
+  geom_vline(xintercept = z.SA$meanPoolAge[1],  color = "gray", linetype = 2) +
+  scale_color_manual(
+    name = "Model Pool",
+    values = c("fast" = "#D81B60")) +
+  scale_x_continuous(limits = c(0, 50)) +
+  ggtitle("Fast pool age distributions") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+sa.pool.dist.df %>%
+  filter(Pool == "intm") %>%
+  ggplot(., aes(Age, Density, color = Pool)) +
+  geom_path(aes(linetype = Model)) +
+  geom_vline(xintercept = s.SA$meanPoolAge[2], color = "gray") +
+  geom_vline(xintercept = z.SA$meanPoolAge[2],  color = "gray", linetype = 2) +
+  scale_color_manual(
+    name = "Model Pool",
+    values = c("intm" = "#FFC107")) +
+  scale_x_continuous(limits = c(0, 250)) +
+  ggtitle("Intermediate pool age distributions") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+sa.pool.dist.df %>%
+  filter(Pool == "slow") %>%
+  ggplot(., aes(Age, Density, color = Pool)) +
+  geom_path(aes(linetype = Model)) +
+  geom_vline(xintercept = s.SA$meanPoolAge[3], color = "gray") +
+  geom_vline(xintercept = z.SA$meanPoolAge[3],  color = "gray", linetype = 2) +
+  scale_color_manual(
+    name = "Model Pool",
+    values = c("slow" = "#1E88E5")) +
+  # scale_x_continuous(limits = c(0, 1000)) +
+  ggtitle("Slow pool age distributions") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+Vertical lines in the above plots show the mean ages for each pool and model. In this case the intermediate aged pool is the most similar between the two models, while the fast and slow pools look quite different.
 
 
+## 3-pool model optimization
 Now work on implementing a cost function to optimize parameters using observed 14C
 ```{r mod-opt}
 # define model function for 2-pool parallel system
