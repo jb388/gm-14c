@@ -6,4 +6,4 @@ This project hosts data from G. Miller comparing data from three soil carbon fra
 *15 May 2020*
 
 **Update:** 
-The most current report is located [**here**](src/gm-14c.14-05-2020.html). Note that you will need to download the file locally in order to view it. This report is in html format, as the Monte Carlo parameter estimations are very time consuming and must be redone every time the .Rmd script is knitted to .pdf format. 
+The most current report is located [**here**](src/gm-14c.15-05-2020.html). Note that you will need to download the file locally in order to view it. This report is in html format, as the Monte Carlo parameter estimations are very time consuming and must be redone every time the .Rmd script is knitted to .pdf format. 
