@@ -1,118 +1,109 @@
 # MCMC script for Bayesian parameter optimization
 # aut: J. Beem-Miller
-# date: 14-May-2020
+# date: 15-May-2020
 
 # script requires running all code chunks prior to "Bayesian parameter estimation" section of "gm-14c.Rmd"
 
+# set date for saving files
+date <- Sys.Date()
+
+## Markov Chain Monte Carlo parameter optimization
+# Note that the model uses a bayesian prior from the Nelder-Mead optimization
+
 # Model iterations and how many to exclude (burn-in)
-niter <- 15000 # started with 5000, not all pars stabilized
+iter <- 15000 # started with 5000, not all pars stabilized; still having stabilization issues after 15000
 burnin <- 5000 # set to ~1/3
 
 # Sohi data
-#####
-# run monte carlo estimatation with optimized parameters
-start <- Sys.time()
+# same upper/lower limits as in modFit
+start.mcmc.s <- Sys.time()
 bayes_fit_s_3p <- modMCMC(f = s.mod.Cost, 
                           p = s.mod.fit$par, 
                           var0 = s.mod.fit$var_ms,
                           upper = c(1, .5, .1, .8, .1), 
                           lower = c(0, 0, 0, 0, 0),
-                          niter = niter, 
+                          niter = iter, 
                           burninlength = burnin)
-end <- Sys.time() 
-end - start # 31 min w/ 5000 iterations
+end.mcmc.s <- Sys.time() 
+end.mcmc.s - start.mcmc.s # 31 min w/ 5000 iterations
 
-bayes_fit_s_3p$bestpar
-s.mod.fit$par
-
-bayesFacts <- data.frame(niter, burnin, bayes_fit_s_3p$naccepted)
-colnames(bayesFacts) <- c('# Iterations', "# Burn-In", "# Accepted")
-
-# Check that parameters have stabilized after burnin (only kfPOM and kOmin)
-plot(bayes_fit_s_3p)
-
-# Estimate parameter sensitivity and return timeseries distribution envelope
-pred_uncert_s_3p <- sensRange(s.modFun_3p, parInput = bayes_fit_s_3p$pars)
-sens_s_3p <- summary(pred_uncert_s_3p)
-
-# # summary
-# round(summary(bayes_fit_s_3p), 4)
-
-# fit mod w/ bayes pars
-s.F0_Delta14C.bayes <- unlist(lapply(bayes_fit_s_3p$bestpar[1:3], function(x) fm_14c(fm(x), 1883)))
-s.3pc.bayes <- sohi.3p.mod(
-  t = yrs,
-  ks = bayes_fit_s_3p$bestpar[1:3],
-  C0 = s.stock.3p.c,
-  F0_Delta14C = s.F0_Delta14C.bayes,
-  In = ws.in,
-  a21 = bayes_fit_s_3p$bestpar[4],
-  a31 = bayes_fit_s_3p$bestpar[5],
-  inputFc = Datm
-)
-
-s.3p.C14m.bayes <- getF14C(s.3pc.bayes) 
-s.3p.C14.bayes <- getF14(s.3pc.bayes)
-s.3p.Ctot.bayes <- getC(s.3pc.bayes)
-
-s.3ps.C14.df.bayes <- data.frame(
-  years = rep(Datm$Date, 5),
-  d14C = c(s.3p.C14.bayes[, 1], s.3p.C14.bayes[, 2], s.3p.C14.bayes[, 3], s.3p.C14m.bayes, Datm$NHc14),
-  pool = rep(c("fPOM", "oPOM", "Omin", "total C", "atm"), each = nrow(s.3p.C14.bayes))
-)
+# bayes_fit_s_3p$bestpar
+# s.mod.fit$par
 #####
 
 # Zimmerman
-#####
-
-# run monte carlo estimatation with optimized parameters
 # same upper/lower limits as in modFit
-start.z <- Sys.time()
+start.mcmc.z <- Sys.time()
 bayes_fit_z_3p <- modMCMC(f = z.mod.Cost, 
                           p = z.mod.fit$par, 
                           var0 = z.mod.fit$var_ms,
                           upper = c(5, .1, .1, .5, .1),
                           lower = c(0, 0, 0, 0, 0),
-                          niter = niter, 
+                          iter = niter, 
                           burninlength = burnin)
-end.z <- Sys.time() 
-end.z - start.z # 24.4 mins w/ 15000 iter
+end.mcmc.z <- Sys.time() 
+end.mcmc.z - start.mcmc.z # 24.4 mins w/ 15000 iter
 
-bayes_fit_z_3p$bestpar
-z.mod.fit$par
+# bayes_fit_z_3p$bestpar
+# z.mod.fit$par
 
-bayesFacts.z <- data.frame(niter, burnin, bayes_fit_z_3p$naccepted)
-colnames(bayesFacts.z) <- c('# Iterations', "# Burn-In", "# Accepted")
+# save bayesian model output for posterity 
+# *WARNING* creates new directory by date, but will overwrite if files from current date exist!
+save(bayes_fit_s_3p, file = paste0("gm-14c/data/derived/bayes-par-fit-", date, "/bayes_fit_s_3p-", iter, "iter", ".RData"))
+save(bayes_fit_z_3p, file = paste0("gm-14c/data/derived/bayes-par-fit-", date, "/bayes_fit_s_3p-", iter, "iter", ".RData"))
 
-# Check that parameters have stabilized after burnin (only kfPOM and kOmin)
-plot(bayes_fit_z_3p)
 
-# # summary
-# round(summary(bayes_fit_s_3p), 4)
+## SA and TT uncertainty
 
-# Estimate parameter sensitivity and return timeseries distribution envelope
-pred_uncert_z_3p <- sensRange(z.modFun_3p, parInput = bayes_fit_z_3p$pars)
-sens_z_3p <- summary(pred_uncert_z_3p)
+# Function to calculate system age, pool ages, and transit time for all bayesian parameter combinations
+sa.tt.fx <- function(pars, iter, a31 = FALSE) {
+  
+  # initialize list
+  ls.nms <- c("SA.ls", "TT.ls", "fast.age.ls", "intm.age.ls", "slow.age.ls", "stock.ls")
+  SA.TT.ls <- lapply(ls.nms, function(ls) {
+    ls <- vector(mode = "list", length = iter)
+  })
+  names(SA.TT.ls) <- ls.nms
+  
+  # set progress bar
+  pb <- txtProgressBar(min = 0, max = iter, style = 3)
+  
+  for (i in 1:iter) {
+    
+    # model matrix
+    A <- -1 * diag(pars$par[i, 1:3])
+    A[2, 1] <- pars$par[i, 4]
+    if (a31) {
+      A[3, 1] <- pars$par[i, 5] 
+    } else {
+      A[3, 2] <- pars$par[i, 5]
+    }
+    
+    # calculate stocks
+    stock <- sum(-1 * solve(A) %*% c(ws.in, ws.in * pars$par[i, 4], ws.in * pars$par[i, 5]))
+    
+    # System ages and transit times
+    SA <- systemAge(A = A, u = In, a = ages)
+    TT <- transitTime(A = A, u = In, a = ages)
+    
+    # Append to list
+    SA.TT.ls[["SA.ls"]][[i]] <- as.numeric(SA$meanSystemAge)
+    SA.TT.ls[["TT.ls"]][[i]] <- as.numeric(TT$meanTransitTime)
+    SA.TT.ls[["fast.age.ls"]][[i]] <- as.numeric(SA$meanPoolAge[1])
+    SA.TT.ls[["intm.age.ls"]][[i]] <- as.numeric(SA$meanPoolAge[2])
+    SA.TT.ls[["slow.age.ls"]][[i]] <- as.numeric(SA$meanPoolAge[3])
+    SA.TT.ls[["stock.ls"]][[i]] <- as.numeric(stock)
+    
+    # tracker
+    setTxtProgressBar(pb, i)
+  }
+  return(SA.TT.ls)
+}
 
-# fit mod w/ bayes pars
-z.F0_Delta14C.bayes <- unlist(lapply(bayes_fit_z_3p$bestpar[1:3], function(x) fm_14c(fm(x), 1883)))
-z.3ps.bayes <- ThreepSeriesModel14(
-  t = yrs,
-  ks = bayes_fit_z_3p$bestpar[1:3],
-  C0 = z.stock.3p.c,
-  F0_Delta14C = z.F0_Delta14C.bayes,
-  In = ws.in,
-  a21 = bayes_fit_z_3p$bestpar[4],
-  a32 = bayes_fit_z_3p$bestpar[5],
-  inputFc = Datm
-)
+# note that the two following function calls are very time consuming...
+s.3p.SA.TT.ls <- sa.tt.fx(pars = bayes_fit_s_3p, iter = nrow(bayes_fit_s_3p$pars), a31 = TRUE)
+z.3p.SA.TT.ls <- sa.tt.fx(pars = bayes_fit_z_3p, iter = nrow(bayes_fit_z_3p$pars), a31 = FALSE)
 
-z.3p.C14m.bayes <- getF14C(z.3ps.bayes) 
-z.3p.C14.bayes <- getF14(z.3ps.bayes)
-z.3p.Ctot.bayes <- getC(z.3ps.bayes)
-
-z.3ps.C14.df.bayes <- data.frame(
-  years = rep(Datm$Date, 5),
-  d14C = c(z.3p.C14.bayes[, 1], z.3p.C14.bayes[, 2], z.3p.C14.bayes[, 3], z.3p.C14m.bayes, Datm$NHc14),
-  pool = rep(c("fast", "intm", "slow", "total C", "atm"), each = nrow(z.3p.C14.bayes))
-)
+# save results
+save(s.3p.SA.TT.ls, file = paste0("gm-14c/data/derived/bayes-par-fit-", date, "/bayes.s.3p.SA.TT.", iter, "iter", ".RData"))
+save(z.3p.SA.TT.ls, file = paste0("gm-14c/data/derived/bayes-par-fit-", date, "/bayes.z.3p.SA.TT.", iter, "iter", ".RData"))

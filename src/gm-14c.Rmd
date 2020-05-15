@@ -20,6 +20,7 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
 ```{r setup, include = FALSE}
 library(ggplot2)
 library(dplyr)
+# note that the version of SoilR on CRAN is out of date. Use the code below to install the most recent version from github
 # devtools::install_github("MPIBGC-TEE/SoilR-exp/pkg")
 library(SoilR)
 library(ISRaD) # for graven dataset
@@ -51,7 +52,7 @@ Read in raw data and summarize.
 
 ```{r read-data}
 # read in raw data
-cdat <- read.csv("../data/derived/frc-c-jbm_11-05-2020.csv")
+cdat <- read.csv("../data/derived/frc-c-jbm/frc-c-jbm_11-05-2020.csv")
 rdat.raw <- read.xlsx("../data/gm14c-mod-files/MRT calc_SB - Pool.xlsx", sheet = "Data", startRow = 2)
 
 # clean up rdat
@@ -646,7 +647,6 @@ z.3ps.C14.df <- data.frame(
 
 # Sohi
 ggplot(s.3ps.C14.df, aes(years, d14C, color = pool)) +
-  geom_vline(xintercept = 2011, linetype = "dashed") +
   geom_path() +
   geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
   scale_color_manual(
@@ -666,7 +666,6 @@ ggplot(s.3ps.C14.df, aes(years, d14C, color = pool)) +
 
 # Zimmerman
 ggplot(z.3ps.C14.df, aes(years, d14C, color = pool)) +
-  geom_vline(xintercept = 2011, linetype = "dashed") +
   geom_path() +
   geom_point(aes(2011, ws.14c.nobc), color = "black", size = 3) + 
   scale_color_manual(
@@ -802,7 +801,7 @@ sa.pool.dist.df %>%
 ## 3-pool model optimization
 The manually fit models perform moderately well, but to avoid bias we will implement an objective cost function to optimize the parameter set: using the Rothamsted observed ^14^C from 1883 and the value observed for the bulk soil (exclusing black carbon) in 2011. We can also use the carbon stocks observed in 2011 as a constraint. If we assume the system is at steady state, we can apply the constraint for the duration of the model run (1883 to 2022).
 
-```{r mod-opt}
+```{r mod-opt, include = FALSE}
 ## Sohi
 # s.pars = 5 obj list (kfPOM, koPOM, kOmin, s.a21, s.a31)
 s.modFun_3p <- function(pars){
@@ -894,7 +893,8 @@ z.modFun_3p <- function(pars){
   In = ws.in,
   a21 = pars[4],
   a32 = pars[5],
-  inputFc = Datm
+  inputFc = Datm,
+  pass= TRUE
 )
   C14m <- getF14C(mod)
   C14p <- getF14(mod)
@@ -909,6 +909,7 @@ z.pars.i <- c(z.kfast = z.kfast.3p,
               z.kslow = z.kslow.3p, 
               a21 = z.a21, 
               a32 = z.a32)
+
 z.mod.Cost <- function(pars){
   modelOutput <- z.modFun_3p(pars)
   cost1 <- modCost(model = modelOutput, obs = obs.14c)
@@ -917,15 +918,16 @@ z.mod.Cost <- function(pars){
 }
 
 # optimize model pars; note that upper values must be defined to prevent negative resp
+# note that as this is an optimization procedure, the values may change
 z.mod.fit <- modFit(f = z.mod.Cost,
                     p = z.pars.i, 
                     method = 'Nelder-Mead',
-                    upper = c(5, .1, .1, .5, .1),
+                    upper = c(2, 1, .5, .1, .1),
                     lower = c(0, 0, 0, 0, 0))
 
 # look at estimates
-z.mod.fit$par
-z.pars.i # much lower k value for fast pool and much higher for intm pool, slightly higher t coef to slow pool
+round(z.mod.fit$par, 6)
+round(z.pars.i, 6) # lower k value for intm pool, slightly higher t coef to intm pool
 
 # Rerun model and plot results against manually fit parameters
 z.F0_Delta14C.fit <- unlist(lapply(z.mod.fit$par[1:3], function(x) fm_14c(fm(x), 1883)))
@@ -1005,12 +1007,14 @@ z.opt.mod.df %>%
   theme(panel.grid = element_blank())
 ```
 
-```{r opt-mod-mats}
+The fast and intermediate curves look similar between the models, while the slow curve is much more depleted in the Zimmerman model, as would be expected operationally. Both models fit the 2011 observation well, but both also have much higher steady-state carbon stocks (Mg ha^-1^) than observed: `r round(sum(-1 * solve(s.A.fit) %*% c(ws.in, ws.in * s.mod.fit$par[4], ws.in * s.mod.fit$par[5])), 1)` (Sohi modeled), `r round(sum(-1 * solve(z.A.fit) %*% c(ws.in, ws.in * z.mod.fit$par[4], ws.in * z.mod.fit$par[5])), 1)` (Zimmerman modeled), verus `r round(ws.stock.nobc, 1)` (observed). Interestingly, note that the observed soil $\Delta$^14^C in 2011 is very close to the atmosphere. However, if we believe the model this is just a coincidence of timing.
+
+```{r age-dist-opt}
 # Means and density distributions for ages and transit times
 In <- matrix(nrow = 3, ncol = 1, c(ws.in, 0, 0))
 ages <- seq(0, 6500) # Time vector for density functions
 
-# model matrices
+## model matrices
 # Sohi
 s.A.fit <- -1 * diag(s.mod.fit$par[1:3])
 s.A.fit[2, 1] <- s.mod.fit$par[4]
@@ -1023,12 +1027,10 @@ z.A.fit <- -1 * diag(z.mod.fit$par[1:3])
 z.A.fit[2, 1] <- z.mod.fit$par[4]
 z.A.fit[3, 2] <- z.mod.fit$par[5]
 # sum(-1 * solve(z.A.fit) %*% c(ws.in, ws.in * z.mod.fit$par[4], ws.in * z.mod.fit$par[5]))
-# just under 2x stocks
-```
+# just over 2x stocks
 
-The fast and intermediate curves look similar between the models, while the slow curve is much more depleted in the Zimmerman model, as would be expected operationally. Both models fit the 2011 observation well, but both also have much higher steady-state carbon stocks (Mg ha^-1^) than observed: `r round(sum(-1 * solve(s.A.fit) %*% c(ws.in, ws.in * s.mod.fit$par[4], ws.in * s.mod.fit$par[5])), 1)` (Sohi modeled), `r round(sum(-1 * solve(z.A.fit) %*% c(ws.in, ws.in * z.mod.fit$par[4], ws.in * z.mod.fit$par[5])), 1)` (Zimmerman modeled), verus `r round(ws.stock.nobc, 1)` (observed). Interestingly, note that the observed soil $\Delta$^14^C in 2011 is very close to the atmosphere. However, if we believe the model this is just a coincidence of timing.
 
-```{r age-dist-opt}
+## System ages and transit times
 # Sohi
 s.SA.fit <- systemAge(A = s.A.fit, u = In, a = ages)
 s.TT.fit <- transitTime(A = s.A.fit, u = In, a = ages)
@@ -1053,7 +1055,7 @@ knitr::kable(sa.tt.df.fit,
              align = "c")
 ```
 
-The above table shows the mean ages and transit times estimated from the optimized model fits. Here the Sohi model has a substantially older mean age for the whole soil than does the Zimmerman model, owing to greater allocation of total carbon to the slowest cycling pool. The mean ages for both the fast/fPOM and intm/oPOM pools are quite similar; while the Zimmerman slow pool is much older than the Sohi Omin pool. Following the trend in mean ages, the mean transit time is slightly slower in the Sohi model than in the Zimmerman model, but only by about 4 years.
+The above table shows the mean ages and transit times estimated from the (Nelder-Mead) optimized model fits. Here the Sohi model has a substantially older mean age for the whole soil than does the Zimmerman model, owing to greater allocation of total carbon to the slowest cycling pool. The mean ages for the intm/oPOM pools are similar; while the Zimmerman slow pool is much older than the Sohi Omin pool. Following the trend in mean ages the mean transit time is slightly slower in the Sohi model than in the Zimmerman model. Owing to the stochastic nature of the optimization algorithm in these underconstrained conditions, the exact values for the ages and transit times are not completely stable, although the trends seem consistent.
 
 ```{r ages-tt-plots-fit}
 # data frame for plotting age distributions
@@ -1125,23 +1127,100 @@ sa.pool.dist.df.fit %>%
 Vertical lines in the above plots show the mean ages for each pool and model. As with the mean ages, age distributions look similar within the two fastest model pools for these fitted models, despite overall mean ages being quite different. The major difference, as was evident from the mean ages, is in the distribution and mean age of the slow pools.
 
 ## Bayesian parameter estimation
-Most optimization algorithms run the risk of finding local optima and missing the global optima, especially when the model system is underconstrained. One approach to mitigate this problem is to use a Monte Carlo method. Another benefit of the Monte Carlo approach is that it can be used to generate a confidence "envelope" around the parameter estimates, and thereby provide an estimate of the uncertainty of the model predictions.
+Most optimization algorithms run the risk of finding local optima and missing the global optima, especially when the model system is underconstrained. One approach to mitigate this problem is to use a Markov Chain Monte Carlo (MCMC) method. Another benefit of the MCMC approach is that it can be used to generate a confidence "envelope" around the parameter estimates, and thereby provide an estimate of the uncertainty of the model predictions.
 
-I started with 5000 iterations, but some of the parameters did not stabilize within that number of runs. The data from the second run, with 15000 is slightly better, but there are still issues with parameter convergence. Owing to the long run time of these calculations, I have split the MCMC code into a separate script. The output of that script can then be loaded back into this file to generate the report.
+I started with 5000 iterations, but some of the parameters did not stabilize within that number of runs. The data from the second run, with 15000 is slightly better, but there are still issues with parameter convergence (see plots below). Owing to the long run time of these calculations, I have split the MCMC code into a separate script. The output of that script can then be loaded back into this file to generate the report.
 
 ```{r load-bayes-fits}
-# the following .RData file is generated by script "/Users/jeff/gm-14c/src/gm-14c-mcmc-bayes.R"
-# for new analyses this must be run 
-load(file = "./gm-14c.14-05-2020.RData")
+# the following .RData files are generated by script "/Users/jeff/gm-14c/src/gm-14c-mcmc-bayes.R"
+load(file = "../data/derived/bayes-par-fit-2020-05-15/bayes.s.3p.15000itr.RData")
+load(file = "../data/derived/bayes-par-fit-2020-05-15/bayes.z.3p.15000itr.RData")
+
+
+## look at model performance
+# Sohi
+bayesFacts.s <- data.frame(niter, burnin, bayes_fit_s_3p$naccepted)
+colnames(bayesFacts.s) <- c('# Iterations', "# Burn-In", "# Accepted")
+# Zimmerman
+bayesFacts.z <- data.frame(niter, burnin, bayes_fit_z_3p$naccepted)
+colnames(bayesFacts.z) <- c('# Iterations', "# Burn-In", "# Accepted")
+
+
+## fit models w/ bayes pars
+# Sohi
+s.F0_Delta14C.bayes <- unlist(lapply(bayes_fit_s_3p$bestpar[1:3], function(x) fm_14c(fm(x), 1883)))
+s.3pc.bayes <- sohi.3p.mod(
+  t = yrs,
+  ks = bayes_fit_s_3p$bestpar[1:3],
+  C0 = s.stock.3p.c,
+  F0_Delta14C = s.F0_Delta14C.bayes,
+  In = ws.in,
+  a21 = bayes_fit_s_3p$bestpar[4],
+  a31 = bayes_fit_s_3p$bestpar[5],
+  inputFc = Datm
+)
+
+s.3p.C14m.bayes <- getF14C(s.3pc.bayes) 
+s.3p.C14.bayes <- getF14(s.3pc.bayes)
+s.3p.Ctot.bayes <- getC(s.3pc.bayes)
+
+s.3ps.C14.df.bayes <- data.frame(
+  years = rep(Datm$Date, 5),
+  d14C = c(s.3p.C14.bayes[, 1], s.3p.C14.bayes[, 2], s.3p.C14.bayes[, 3], s.3p.C14m.bayes, Datm$NHc14),
+  pool = rep(c("fPOM", "oPOM", "Omin", "total C", "atm"), each = nrow(s.3p.C14.bayes))
+)
+
+
+# Zimmerman
+z.F0_Delta14C.bayes <- unlist(lapply(bayes_fit_z_3p$bestpar[1:3], function(x) fm_14c(fm(x), 1883)))
+z.3ps.bayes <- ThreepSeriesModel14(
+  t = yrs,
+  ks = bayes_fit_z_3p$bestpar[1:3],
+  C0 = z.stock.3p.c,
+  F0_Delta14C = z.F0_Delta14C.bayes,
+  In = ws.in,
+  a21 = bayes_fit_z_3p$bestpar[4],
+  a32 = bayes_fit_z_3p$bestpar[5],
+  inputFc = Datm
+)
+
+z.3p.C14m.bayes <- getF14C(z.3ps.bayes) 
+z.3p.C14.bayes <- getF14(z.3ps.bayes)
+z.3p.Ctot.bayes <- getC(z.3ps.bayes)
+
+z.3ps.C14.df.bayes <- data.frame(
+  years = rep(Datm$Date, 5),
+  d14C = c(z.3p.C14.bayes[, 1], z.3p.C14.bayes[, 2], z.3p.C14.bayes[, 3], z.3p.C14m.bayes, Datm$NHc14),
+  pool = rep(c("fast", "intm", "slow", "total C", "atm"), each = nrow(z.3p.C14.bayes))
+)
 ```
 
+```{r}
+# Check if parameters have stabilized after burnin
+# seems like only kfPOM and kOmin for Sohi, 
+plot(bayes_fit_s_3p)
+plot(bayes_fit_z_3p)
+```
 
-```{r bayes-fit-sohi-plot}
-# extract sensitivity data from bayesian analysis for plotting
+From the above plots, we can see that some of the parameters still haven't stabilized after 15000 iterations (note that the first 5000 iterations were discarded, "burnin"). The transfer coefficients seem particularly unstable. This could be due to the initial values, but is more likely because the the model is underconstrained.
+
+```{r bayes-fit-sens}
+## Estimate parameter sensitivity and return timeseries distribution envelope, put 14C data into df for plotting
+# Sohi
+pred_uncert_s_3p <- sensRange(s.modFun_3p, parInput = bayes_fit_s_3p$pars)
+sens_s_3p <- summary(pred_uncert_s_3p)
 sens_s_3p.df <- sens_s_3p[1:length(yrs), c("x", "Mean", "q05", "q95")]
 colnames(sens_s_3p.df) <- c("years", "d14C", "q05", "q95")
-  
-# plot
+
+# Zimmerman
+pred_uncert_z_3p <- sensRange(z.modFun_3p, parInput = bayes_fit_z_3p$pars)
+sens_z_3p <- summary(pred_uncert_z_3p)
+sens_z_3p.df <- sens_z_3p[1:length(yrs), c("x", "Mean", "q05", "q95")]
+colnames(sens_z_3p.df) <- c("years", "d14C", "q05", "q95")
+```
+
+```{r bayes-fit-plots}
+# Sohi
 ggplot(s.3ps.C14.df.bayes, aes(years, d14C)) +
   geom_ribbon(data = sens_s_3p.df, aes(ymin = q95, ymax = q05), fill = "gray") +
   geom_path(aes(color = pool)) +
@@ -1160,14 +1239,8 @@ ggplot(s.3ps.C14.df.bayes, aes(years, d14C)) +
   ylab(expression(''*Delta*''^14*'C (‰)')) +
   theme_bw() +
   theme(panel.grid = element_blank())
-```
 
-```{r bayes-fit-zim-plot}
-# extract sensitivity data from bayesian analysis for plotting
-sens_z_3p.df <- sens_z_3p[1:length(yrs), c("x", "Mean", "q05", "q95")]
-colnames(sens_z_3p.df) <- c("years", "d14C", "q05", "q95")
-  
-# plot
+# Zimmerman
 ggplot(z.3ps.C14.df.bayes, aes(years, d14C)) +
   geom_ribbon(data = sens_z_3p.df, aes(ymin = q95, ymax = q05), fill = "gray") +
   geom_path(aes(color = pool)) +
@@ -1189,3 +1262,23 @@ ggplot(z.3ps.C14.df.bayes, aes(years, d14C)) +
 ```
 
 The above plots show the best-fit parameter set from the 15000 iteration MCMC run with a 95% confidence interval plotted around the whole soil $\Delta$^14^C estimate. Both models fit the data reasonably well, but with very different interpretations in terms of the mean age of the soil. With the current dataset, owing the issues with the black carbon contamination, it is difficult to assess which model is more accurate.
+
+```{r pars-table}
+pars.ls <- list(s.pars.i, s.mod.fit$par, bayes_fit_s_3p$bestpar, 
+                z.pars.i, z.mod.fit$par, bayes_fit_z_3p$bestpar)
+
+pars.df <- data.frame(Model = rep(c("Sohi", "Zimmerman"), each = 3),
+                      Optimization = rep(c("manual", "Nelder-Mead", "MCMC"), 2),
+                      k.fast = round(unlist(lapply(pars.ls, "[[", 1)), 2),
+                      k.intm = round(unlist(lapply(pars.ls, "[[", 2)), 3),
+                      k.slow = format(round(unlist(lapply(pars.ls, "[[", 3)), 4), scientific = FALSE),
+                      a21 = round(unlist(lapply(pars.ls, "[[", 4)), 4),
+                      a31 = c(format(round(unlist(lapply(pars.ls[1:3], "[[", 5)), 6), scientific = FALSE), rep("", 3)),
+                      a32 = c(rep("", 3), format(round(unlist(lapply(pars.ls[4:6], "[[", 5)), 6), scientific = FALSE)))
+
+knitr::kable(pars.df,
+             caption = "Optimal parameter search results, 3-pool models",
+             align = "c")
+```
+
+The above table shows the final parameter sets from the three optimization approaches used: manually fit, optimized with the Nelder-Mead algorithm (function 'modFit' from the R package FME), or the Markov Chain Monte Carlo method set after 15000 iterations (function modMCMC from the R package FME). Notes: the parameter "a21" is the transfer coefficient between the fast and intermediate model pools; "a31" is the transfer coefficient from the fast pool to the slow pool in the Sohi model; and "a32" is the transfer coefficient from the intermediate pool to the slow pool in the Zimmerman model (series-type). 
