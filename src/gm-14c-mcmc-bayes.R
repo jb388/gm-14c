@@ -5,8 +5,8 @@
 # script requires running all code chunks prior to "Bayesian parameter estimation" section of "gm-14c.Rmd"
 
 # Model iterations and how many to exclude (burn-in)
-niter <- 5000 # started with 5000, not all pars stabilized
-burnin <- 500 # set to ~1/3
+niter <- 15000 # started with 5000, not all pars stabilized
+burnin <- 5000 # set to ~1/3
 
 # Sohi data
 #####
@@ -20,7 +20,7 @@ bayes_fit_s_3p <- modMCMC(f = s.mod.Cost,
                           niter = niter, 
                           burninlength = burnin)
 end <- Sys.time() 
-end - start # 20.6 min w/ 5000 iterations
+end - start # 31 min w/ 5000 iterations
 
 bayes_fit_s_3p$bestpar
 s.mod.fit$par
@@ -76,7 +76,7 @@ bayes_fit_z_3p <- modMCMC(f = z.mod.Cost,
                           niter = niter, 
                           burninlength = burnin)
 end.z <- Sys.time() 
-end.z - start.z # 20.4 mins w/ 5000 iter
+end.z - start.z # 24.4 mins w/ 15000 iter
 
 bayes_fit_z_3p$bestpar
 z.mod.fit$par
