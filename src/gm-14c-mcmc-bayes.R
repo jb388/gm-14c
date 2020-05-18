@@ -11,8 +11,13 @@ date <- Sys.Date()
 # Note that the model uses a bayesian prior from the Nelder-Mead optimization
 
 # Model iterations and how many to exclude (burn-in)
-iter <- 15000 # started with 5000, not all pars stabilized; still having stabilization issues after 15000
-burnin <- 5000 # set to ~1/3
+iter <- 15000 # started with 5000, not all pars stabilized;
+updatecov <- 10 # good par stabilization with updatecov set to 10!
+
+# for saving script output
+save.iter <- paste0(iter, "iter", ".RData")
+save.dir <- file.path(paste0("gm-14c/data/derived/bayes-par-fit-", date))
+if(!dir.exists(save.dir)) {dir.create(file.path(paste0("gm-14c/data/derived/bayes-par-fit-", date)))}  
 
 # Sohi data
 # same upper/lower limits as in modFit
@@ -20,16 +25,16 @@ start.mcmc.s <- Sys.time()
 bayes_fit_s_3p <- modMCMC(f = s.mod.Cost, 
                           p = s.mod.fit$par, 
                           var0 = s.mod.fit$var_ms,
-                          upper = c(1, .5, .1, .8, .1), 
+                          upper = c(1, .1, .1, .5, .1), 
                           lower = c(0, 0, 0, 0, 0),
                           niter = iter, 
-                          burninlength = burnin)
+                          burninlength = 0,
+                          updatecov = updatecov)
 end.mcmc.s <- Sys.time() 
 end.mcmc.s - start.mcmc.s # 31 min w/ 5000 iterations
 
 # bayes_fit_s_3p$bestpar
 # s.mod.fit$par
-#####
 
 # Zimmerman
 # same upper/lower limits as in modFit
@@ -37,20 +42,18 @@ start.mcmc.z <- Sys.time()
 bayes_fit_z_3p <- modMCMC(f = z.mod.Cost, 
                           p = z.mod.fit$par, 
                           var0 = z.mod.fit$var_ms,
-                          upper = c(5, .1, .1, .5, .1),
+                          upper = c(1, .1, .1, .5, .1),
                           lower = c(0, 0, 0, 0, 0),
-                          iter = niter, 
-                          burninlength = burnin)
+                          niter = iter, 
+                          burninlength = 0,
+                          updatecov = 10)
 end.mcmc.z <- Sys.time() 
 end.mcmc.z - start.mcmc.z # 24.4 mins w/ 15000 iter
 
-# bayes_fit_z_3p$bestpar
-# z.mod.fit$par
-
-# save bayesian model output for posterity 
-# *WARNING* creates new directory by date, but will overwrite if files from current date exist!
-save(bayes_fit_s_3p, file = paste0("gm-14c/data/derived/bayes-par-fit-", date, "/bayes_fit_s_3p-", iter, "iter", ".RData"))
-save(bayes_fit_z_3p, file = paste0("gm-14c/data/derived/bayes-par-fit-", date, "/bayes_fit_s_3p-", iter, "iter", ".RData"))
+# save output
+# *WARNING* will overwrite if files from current date exist!
+save(bayes_fit_s_3p, file = paste0(save.dir, "/bayes_fit_s_3p-", save.iter))
+save(bayes_fit_z_3p, file = paste0(save.dir, "/bayes_fit_z_3p-", save.iter))
 
 
 ## SA and TT uncertainty
@@ -100,10 +103,37 @@ sa.tt.fx <- function(pars, iter, a31 = FALSE) {
   return(SA.TT.ls)
 }
 
-# note that the two following function calls are very time consuming...
-s.3p.SA.TT.ls <- sa.tt.fx(pars = bayes_fit_s_3p, iter = nrow(bayes_fit_s_3p$pars), a31 = TRUE)
-z.3p.SA.TT.ls <- sa.tt.fx(pars = bayes_fit_z_3p, iter = nrow(bayes_fit_z_3p$pars), a31 = FALSE)
+# average par est by every 100 to speed up following calls
+brks <- seq(1, nrow(bayes_fit_s_3p$pars), by = 100)
+# Sohi
+bayes_fit_s_3p.100avg <- lapply(brks, function(x) matrix(nrow = 1, ncol = ncol(bayes_fit_s_3p$pars)))
+for(i in seq_along(brks)) {
+  if(brks[i] < brks[length(brks)]) {
+  bayes_fit_s_3p.100avg[[i]] <- apply(bayes_fit_s_3p$pars[brks[i]:brks[i+1],], 2, mean) 
+  } else {
+    bayes_fit_s_3p.100avg[[i]] <- apply(bayes_fit_s_3p$pars[brks[i]:nrow(bayes_fit_s_3p$pars),], 2, mean)  
+  }
+}
+bayes_fit_s_3p.100avg <- do.call(rbind, bayes_fit_s_3p.100avg)
+bayes_fit_s_3p.ls <- list(pars = bayes_fit_s_3p.100avg)
 
-# save results
-save(s.3p.SA.TT.ls, file = paste0("gm-14c/data/derived/bayes-par-fit-", date, "/bayes.s.3p.SA.TT.", iter, "iter", ".RData"))
-save(z.3p.SA.TT.ls, file = paste0("gm-14c/data/derived/bayes-par-fit-", date, "/bayes.z.3p.SA.TT.", iter, "iter", ".RData"))
+# Zimmerman
+bayes_fit_z_3p.100avg <- lapply(brks, function(x) matrix(nrow = 1, ncol = ncol(bayes_fit_z_3p$pars)))
+for(i in seq_along(brks)) {
+  if(brks[i] < brks[length(brks)]) {
+    bayes_fit_z_3p.100avg[[i]] <- apply(bayes_fit_z_3p$pars[brks[i]:brks[i+1],], 2, mean) 
+  } else {
+    bayes_fit_z_3p.100avg[[i]] <- apply(bayes_fit_z_3p$pars[brks[i]:nrow(bayes_fit_z_3p$pars),], 2, mean)  
+  }
+}
+bayes_fit_z_3p.100avg <- do.call(rbind, bayes_fit_z_3p.100avg)
+bayes_fit_z_3p.ls <- list(pars = bayes_fit_z_3p.100avg)
+
+# note that the two following function calls are very time consuming...
+s.3p.SA.TT.ls <- sa.tt.fx(pars = bayes_fit_s_3p.ls, iter = nrow(bayes_fit_s_3p.ls$pars), a31 = TRUE)
+z.3p.SA.TT.ls <- sa.tt.fx(pars = bayes_fit_z_3p.ls, iter = nrow(bayes_fit_z_3p.ls$pars), a31 = FALSE)
+
+# save output
+# *WARNING* will overwrite if files from current date exist!
+save(s.3p.SA.TT.ls, file = paste0(save.dir, "/bayes_fit_s_3p.SA.TT.", save.iter))
+save(z.3p.SA.TT.ls, file = paste0(save.dir, "/bayes_fit_z_3p.SA.TT.", save.iter))

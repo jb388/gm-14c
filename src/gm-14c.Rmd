@@ -1,7 +1,7 @@
 ---
 title: "Radiocarbon modeling for Gemma Miller project"
 author: "J. Beem-Miller"
-date: "11 May 2020"
+date: "16 May 2020"
 output:
   html_notebook:
     toc: yes
@@ -799,7 +799,7 @@ sa.pool.dist.df %>%
 ```
 
 ## 3-pool model optimization
-The manually fit models perform moderately well, but to avoid bias we will implement an objective cost function to optimize the parameter set: using the Rothamsted observed ^14^C from 1883 and the value observed for the bulk soil (exclusing black carbon) in 2011. We can also use the carbon stocks observed in 2011 as a constraint. If we assume the system is at steady state, we can apply the constraint for the duration of the model run (1883 to 2022).
+The manually fit models perform moderately well, but to avoid bias we will implement an objective cost function to optimize the parameter set: using the Rothamsted observed ^14^C from 1883 and the value observed for the bulk soil (excluding black carbon) in 2011. We can also use the carbon stocks observed in 2011 as a constraint. If we assume the system is at steady state, we can apply the constraint for the duration of the model run (1883 to 2022).
 
 ```{r mod-opt, include = FALSE}
 ## Sohi
@@ -814,7 +814,8 @@ s.modFun_3p <- function(pars){
     In = ws.in,
     a21 = pars[4],
     a31 = pars[5],
-    inputFc = Datm
+    inputFc = Datm,
+    pass = TRUE
 )
   C14m <- getF14C(mod)
   C14p <- getF14(mod)
@@ -850,7 +851,7 @@ s.mod.Cost <- function(pars){
 s.mod.fit <- modFit(f = s.mod.Cost,
                     p = s.pars.i, 
                     method = 'Nelder-Mead', 
-                    upper = c(5, .1, .1, .5, .1), 
+                    upper = c(1, .1, .1, .5, 1), 
                     lower = c(0, 0, 0, 0, 0))
 
 # look at estimates
@@ -1007,7 +1008,9 @@ z.opt.mod.df %>%
   theme(panel.grid = element_blank())
 ```
 
-The fast and intermediate curves look similar between the models, while the slow curve is much more depleted in the Zimmerman model, as would be expected operationally. Both models fit the 2011 observation well, but both also have much higher steady-state carbon stocks (Mg ha^-1^) than observed: `r round(sum(-1 * solve(s.A.fit) %*% c(ws.in, ws.in * s.mod.fit$par[4], ws.in * s.mod.fit$par[5])), 1)` (Sohi modeled), `r round(sum(-1 * solve(z.A.fit) %*% c(ws.in, ws.in * z.mod.fit$par[4], ws.in * z.mod.fit$par[5])), 1)` (Zimmerman modeled), verus `r round(ws.stock.nobc, 1)` (observed). Interestingly, note that the observed soil $\Delta$^14^C in 2011 is very close to the atmosphere. However, if we believe the model this is just a coincidence of timing.
+The intermediate curves look similar between the models, while the fast pool turns over faster in the Sohi model, and the slow curve is much more depleted in the Zimmerman model, as would be expected operationally. Both models fit the 2011 observation well, but both also have much higher steady-state carbon stocks (Mg ha^-1^) than observed: `r round(sum(-1 * solve(s.A.fit) %*% c(ws.in, ws.in * s.mod.fit$par[4], ws.in * s.mod.fit$par[5])), 1)` (Sohi modeled), `r round(sum(-1 * solve(z.A.fit) %*% c(ws.in, ws.in * z.mod.fit$par[4], ws.in * z.mod.fit$par[5])), 1)` (Zimmerman modeled), verus `r round(ws.stock.nobc, 1)` (observed). 
+
+Interestingly, note that the observed soil $\Delta$^14^C in 2011 is very close to the atmosphere. However, if we believe the model this is just a coincidence of timing.
 
 ```{r age-dist-opt}
 # Means and density distributions for ages and transit times
@@ -1077,7 +1080,7 @@ ggplot(sa.dist.df.fit, aes(Age, Density)) +
   geom_vline(xintercept = z.SA.fit$meanSystemAge, color = "gray", linetype = 2) +
   scale_x_continuous(limits = c(0, 400)) +
   scale_y_continuous(limits = c(0, .03)) +
-  ggtitle("Mean system age distributions (fitted 3-pool models)") +
+  ggtitle("Mean system age distributions (Nelder-Mead fitted 3-pool models)") +
   theme_bw() +
   theme(panel.grid = element_blank())
 
@@ -1091,7 +1094,7 @@ sa.pool.dist.df.fit %>%
     name = "Model Pool",
     values = c("fast" = "#D81B60")) +
   scale_x_continuous(limits = c(0, 70)) +
-  ggtitle("Fast pool age distributions (fitted)") +
+  ggtitle("Fast pool age distributions (Nelder-Mead)") +
   theme_bw() +
   theme(panel.grid = element_blank())
 
@@ -1105,7 +1108,7 @@ sa.pool.dist.df.fit %>%
     name = "Model Pool",
     values = c("intm" = "#FFC107")) +
   scale_x_continuous(limits = c(0, 100)) +
-  ggtitle("Intermediate pool age distributions (fitted)") +
+  ggtitle("Intermediate pool age distributions (Nelder-Mead)") +
   theme_bw() +
   theme(panel.grid = element_blank())
 
@@ -1119,7 +1122,7 @@ sa.pool.dist.df.fit %>%
     name = "Model Pool",
     values = c("slow" = "#1E88E5")) +
   # scale_x_continuous(limits = c(0, 1000)) +
-  ggtitle("Slow pool age distributions (fitted)") +
+  ggtitle("Slow pool age distributions (Nelder-Mead)") +
   theme_bw() +
   theme(panel.grid = element_blank())
 ```
@@ -1129,22 +1132,18 @@ Vertical lines in the above plots show the mean ages for each pool and model. As
 ## Bayesian parameter estimation
 Most optimization algorithms run the risk of finding local optima and missing the global optima, especially when the model system is underconstrained. One approach to mitigate this problem is to use a Markov Chain Monte Carlo (MCMC) method. Another benefit of the MCMC approach is that it can be used to generate a confidence "envelope" around the parameter estimates, and thereby provide an estimate of the uncertainty of the model predictions.
 
-I started with 5000 iterations, but some of the parameters did not stabilize within that number of runs. The data from the second run, with 15000 is slightly better, but there are still issues with parameter convergence (see plots below). Owing to the long run time of these calculations, I have split the MCMC code into a separate script. The output of that script can then be loaded back into this file to generate the report.
+I started with 5000 iterations, but some of the parameters did not stabilize within that number of runs. The data from the second run, with 15000 was better, but still had issues with parameter convergence. Finally, for a third run I lowered the parameter covariance matrix re-evaluation setting (which detemines the MCMC jump) so it would reset after every 10 iterations, and this greatly improved parameter stabilization.
+
+Owing to the long run time of these calculations, I have split the MCMC code into a separate script (this directory, file name = "gm-14c-mcmc-bayes.R"). The output of that script is then loaded back into this file with the code below to generate the report.
 
 ```{r load-bayes-fits}
-# the following .RData files are generated by script "/Users/jeff/gm-14c/src/gm-14c-mcmc-bayes.R"
-load(file = "../data/derived/bayes-par-fit-2020-05-15/bayes.s.3p.15000itr.RData")
-load(file = "../data/derived/bayes-par-fit-2020-05-15/bayes.z.3p.15000itr.RData")
-
+# the following .RData files are generated by script "gm-14c/src/gm-14c-mcmc-bayes.R"
+load(file = "../data/derived/bayes-par-fit-2020-05-16/bayes.s.3p.15000itr.RData")
+load(file = "../data/derived/bayes-par-fit-2020-05-16/bayes.z.3p.15000itr.RData")
 
 ## look at model performance
-# Sohi
-bayesFacts.s <- data.frame(niter, burnin, bayes_fit_s_3p$naccepted)
-colnames(bayesFacts.s) <- c('# Iterations', "# Burn-In", "# Accepted")
-# Zimmerman
-bayesFacts.z <- data.frame(niter, burnin, bayes_fit_z_3p$naccepted)
-colnames(bayesFacts.z) <- c('# Iterations', "# Burn-In", "# Accepted")
-
+bayesFacts <- data.frame(iter, updatecov, bayes_fit_s_3p$naccepted, bayes_fit_z_3p$naccepted)
+colnames(bayesFacts) <- c('# Iterations', "# Cov update", "# Accepted (Sohi)", "# Accepted (Zimmerman)")
 
 ## fit models w/ bayes pars
 # Sohi
@@ -1193,7 +1192,13 @@ z.3ps.C14.df.bayes <- data.frame(
   d14C = c(z.3p.C14.bayes[, 1], z.3p.C14.bayes[, 2], z.3p.C14.bayes[, 3], z.3p.C14m.bayes, Datm$NHc14),
   pool = rep(c("fast", "intm", "slow", "total C", "atm"), each = nrow(z.3p.C14.bayes))
 )
+
+knitr::kable(bayesFacts,
+             caption = "MCMC performance statistics",
+             align = "c")
 ```
+
+The above table shows the number of accepted parameter combinations from the MCMC output. The Sohi parameter set had a higher number of accepted runs, which could indicate that this model is less sensitive to perturbations in the parameters. 
 
 ```{r}
 # Check if parameters have stabilized after burnin
@@ -1202,7 +1207,7 @@ plot(bayes_fit_s_3p)
 plot(bayes_fit_z_3p)
 ```
 
-From the above plots, we can see that some of the parameters still haven't stabilized after 15000 iterations (note that the first 5000 iterations were discarded, "burnin"). The transfer coefficients seem particularly unstable. This could be due to the initial values, but is more likely because the the model is underconstrained.
+From the above plots, we can see that all of the parameters have stabilized after 10000 iterations, with the Sohi parameter set mostly stable after 5000. The MCMC model was run for 15000 iterations, with parameter jump reset after every 10. However, while the parameters are stablizing around a mean value, they are still quite noisy. This noise is likely due to the fact that the model is underconstrained.
 
 ```{r bayes-fit-sens}
 ## Estimate parameter sensitivity and return timeseries distribution envelope, put 14C data into df for plotting
@@ -1282,3 +1287,46 @@ knitr::kable(pars.df,
 ```
 
 The above table shows the final parameter sets from the three optimization approaches used: manually fit, optimized with the Nelder-Mead algorithm (function 'modFit' from the R package FME), or the Markov Chain Monte Carlo method set after 15000 iterations (function modMCMC from the R package FME). Notes: the parameter "a21" is the transfer coefficient between the fast and intermediate model pools; "a31" is the transfer coefficient from the fast pool to the slow pool in the Sohi model; and "a32" is the transfer coefficient from the intermediate pool to the slow pool in the Zimmerman model (series-type). 
+
+```{r sa-tt-mcmc}
+s.mcmc.df <- bind_rows(lapply(s.3p.SA.TT.ls, unlist))
+z.mcmc.df <- bind_rows(lapply(z.3p.SA.TT.ls, unlist)) 
+mcmc.df <- rbind(s.mcmc.df, z.mcmc.df)
+mcmc.df$mod <- rep(c("Sohi", "Zimmerman"), each = nrow(s.mcmc.df))
+
+box.plot.fx <- function(var, title, mod = "mod", ylab = "Years") {
+  p <- ggplot(mcmc.df, aes_string(mod, var, fill = mod)) +
+  ggtitle(title) +
+  geom_boxplot(color = "gray") +
+  scale_fill_manual(
+    name = "Model",
+    values = c("Sohi" = "#0101BB",
+               "Zimmerman" = "#01A2A2")
+  ) +
+  ylab(ylab) +
+  theme(panel.grid = element_blank(),
+        panel.background = element_rect(fill = "#f9f9f9"),
+        axis.title.x = element_blank())
+}
+
+titles <- c("Mean system age", 
+            "Mean transit time",
+            "Fast pool mean age",
+            "Intermediate pool mean age",
+            "Slow pool mean age")
+vars <- names(mcmc.df)[1:length(titles)]
+
+for(i in seq_along(titles)) {
+  print(box.plot.fx(vars[i], titles[i]))
+}
+print(box.plot.fx("stock.ls", "Carbon stock", ylab = expression("Mg C "~ha^-1)))
+
+```
+
+The above plot show the uncertainty of age and transit time estimates from the MCMC parameter output. To speed up processing time, I calculated the mean of the parameter estimates for sets of 100 iterations, and used those averages to create the above boxplots. The center bars are the medians, while the boxes show the IQR and the whiskers show the 5th and 95th percentiles.
+
+There are two major issues with this model output:
+1) Transit times are too long
+2) C stocks are much too high
+
+At this point I would say the best option is to cut back the inputs. But I'm not sure why the model cost function isn't penalizing the stocks. Perhaps the cost function needs to be adjusted.
